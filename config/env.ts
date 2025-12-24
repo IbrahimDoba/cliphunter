@@ -21,6 +21,14 @@ const envSchema = z.object({
 
   // Optional: Deepgram API
   DEEPGRAM_API_KEY: z.string().optional(),
+
+  // Google/YouTube OAuth
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  GOOGLE_REDIRECT_URI: z.string().default('http://localhost:3000/api/youtube/callback'),
+
+  // OpenAI API for auto-generating titles/descriptions
+  OPENAI_API_KEY: z.string().optional(),
 });
 
 // Parse and validate environment variables

@@ -174,6 +174,36 @@ export class JobService {
   }
 
   /**
+   * Update a specific clip's title in the job result
+   */
+  async updateClipTitle(jobId: string, clipId: string, newTitle: string): Promise<boolean> {
+    const job = await this.getJob(jobId);
+
+    if (!job || !job.result) {
+      return false;
+    }
+
+    const clipIndex = job.result.clips.findIndex((c) => c.id === clipId);
+    if (clipIndex === -1) {
+      return false;
+    }
+
+    job.result.clips[clipIndex].title = newTitle;
+
+    const stmt = db.prepare(`
+      UPDATE jobs
+      SET result = ?, updated_at = ?
+      WHERE id = ?
+    `);
+
+    stmt.run(JSON.stringify(job.result), Date.now(), jobId);
+
+    logger.info('Clip title updated', { jobId, clipId, newTitle });
+
+    return true;
+  }
+
+  /**
    * Cancel job
    */
   async cancelJob(jobId: string): Promise<boolean> {

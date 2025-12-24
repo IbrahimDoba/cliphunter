@@ -5,6 +5,11 @@ const nextConfig = {
       bodySizeLimit: '10mb',
     },
   },
+  serverExternalPackages: [
+    'fluent-ffmpeg',
+    '@ffmpeg-installer/ffmpeg',
+    '@ffprobe-installer/ffprobe',
+  ],
   webpack: (config) => {
     // Fixes npm packages that depend on `fs` module
     config.resolve.fallback = {

@@ -4,6 +4,7 @@ import { youtubeService } from '../lib/services/youtube.service';
 import { videoService } from '../lib/services/video.service';
 import { subtitleService } from '../lib/services/subtitle.service';
 import { clipService } from '../lib/services/clip.service';
+import { aiService } from '../lib/services/ai.service';
 import { storageService } from '../lib/storage/local-storage';
 import { env } from '../config/env';
 import { JOB_STATUS, PROCESSING_STEPS } from '../config/constants';
@@ -88,14 +89,46 @@ class VideoProcessor {
         message: 'Downloading video...',
       });
 
-      // Step 1: Download video
-      const videoInfo = await youtubeService.downloadVideo(job.videoUrl, job.id);
+      // Step 1: Download video with progress tracking
+      const videoInfo = await youtubeService.downloadVideo(
+        job.videoUrl,
+        job.id,
+        (progress) => {
+          // Map download progress to 0-25% of total job progress
+          const jobProgress = Math.round(progress.percentage * 0.25);
+          const message = progress.percentage < 100
+            ? `Downloading video... ${progress.percentage}% (${progress.speed})`
+            : 'Download complete, processing...';
+
+          this.updateProgress(
+            job.id,
+            PROCESSING_STEPS.DOWNLOADING,
+            jobProgress,
+            message
+          ).catch((err) => logger.error('Failed to update download progress', err));
+        }
+      );
 
       await this.updateProgress(job.id, PROCESSING_STEPS.ANALYZING, 25, 'Analyzing video...');
 
       // Step 2: Analyze video and detect scenes
       const maxClips = job.options.maxClips || 5;
       const scenes = await videoService.analyzeVideo(videoInfo.videoPath, maxClips);
+
+      await this.updateProgress(job.id, PROCESSING_STEPS.TRANSCRIBING, 45, 'Generating clip titles...');
+
+      // Step 2.5: Generate AI titles for each clip (if OpenAI is configured)
+      let clipTitles: string[] = [];
+      try {
+        if (env.OPENAI_API_KEY) {
+          clipTitles = await aiService.generateClipTitles(videoInfo.title, scenes.length);
+          logger.info('Generated clip titles', { titles: clipTitles });
+        } else {
+          logger.info('OpenAI not configured, skipping title generation');
+        }
+      } catch (error) {
+        logger.warn('Failed to generate clip titles, continuing without titles', { error });
+      }
 
       await this.updateProgress(job.id, PROCESSING_STEPS.TRANSCRIBING, 50, 'Generating subtitles...');
 
@@ -121,6 +154,7 @@ class VideoProcessor {
           includeSubtitles: job.options.includeSubtitles,
           subtitlePath: subtitlePath || undefined,
           quality: 'medium',
+          titles: clipTitles.length > 0 ? clipTitles : undefined,
         },
         (clipIndex, percent) => {
           const baseProgress = 60;
@@ -148,6 +182,7 @@ class VideoProcessor {
           score: clip.score,
           thumbnailUrl: `/outputs/${job.id}/thumbnails/${clip.id}.jpg`,
           videoUrl: `/outputs/${job.id}/clips/${clip.id}.mp4`,
+          title: clip.title,
         })),
       };
 

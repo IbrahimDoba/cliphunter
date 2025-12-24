@@ -47,6 +47,7 @@ export interface ClipInfo {
   score: number;
   thumbnailUrl: string;
   videoUrl: string;
+  title?: string; // Title overlay burned into the video
 }
 
 // Database types

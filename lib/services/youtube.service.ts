@@ -1,4 +1,4 @@
-import { exec } from 'child_process';
+import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import * as path from 'path';
 import * as fs from 'fs/promises';
@@ -14,6 +14,12 @@ export interface YouTubeVideoInfo {
   duration: number;
   thumbnail: string;
   videoPath: string;
+}
+
+export interface DownloadProgress {
+  percentage: number;
+  speed: string;
+  eta: string;
 }
 
 export class YouTubeService {
@@ -33,11 +39,12 @@ export class YouTubeService {
   }
 
   /**
-   * Download video from YouTube
+   * Download video from YouTube with progress tracking
    */
   async downloadVideo(
     videoUrl: string,
-    jobId: string
+    jobId: string,
+    onProgress?: (progress: DownloadProgress) => void
   ): Promise<YouTubeVideoInfo> {
     const videoId = extractVideoId(videoUrl);
     if (!videoId) {
@@ -53,14 +60,8 @@ export class YouTubeService {
       // First, get video info
       const info = await this.getVideoInfo(videoUrl);
 
-      // Download video
-      const command = `yt-dlp --format "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" --merge-output-format mp4 --output "${outputTemplate}" --no-playlist --quiet --progress "${videoUrl}"`;
-
-      logger.debug('Executing yt-dlp command', { command });
-
-      await execPromise(command, {
-        maxBuffer: 50 * 1024 * 1024, // 50MB buffer
-      });
+      // Download video with progress tracking using spawn
+      await this.downloadWithProgress(videoUrl, outputTemplate, onProgress);
 
       // Find the downloaded file
       const files = await fs.readdir(this.tempDir);
@@ -85,6 +86,82 @@ export class YouTubeService {
       logger.error('Video download failed', { error: error.message, videoUrl });
       throw new Error(`Failed to download video: ${error.message}`);
     }
+  }
+
+  /**
+   * Download video using spawn for real-time progress
+   */
+  private downloadWithProgress(
+    videoUrl: string,
+    outputTemplate: string,
+    onProgress?: (progress: DownloadProgress) => void
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const args = [
+        '--format', 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        '--merge-output-format', 'mp4',
+        '--output', outputTemplate,
+        '--no-playlist',
+        '--newline', // Output progress on new lines for easier parsing
+        videoUrl,
+      ];
+
+      const ytdlp = spawn('yt-dlp', args);
+
+      let lastProgress = 0;
+
+      ytdlp.stdout.on('data', (data: Buffer) => {
+        const output = data.toString();
+
+        // Parse yt-dlp progress output
+        // Format: [download]  45.2% of 150.00MiB at 5.00MiB/s ETA 00:15
+        const progressMatch = output.match(/\[download\]\s+(\d+\.?\d*)%\s+of\s+[\d.]+\w+\s+at\s+([\d.]+\w+\/s)(?:\s+ETA\s+(\d+:\d+))?/);
+
+        if (progressMatch && onProgress) {
+          const percentage = parseFloat(progressMatch[1]);
+
+          // Only update if progress changed significantly (avoid spam)
+          if (percentage - lastProgress >= 1 || percentage >= 100) {
+            lastProgress = percentage;
+            onProgress({
+              percentage: Math.round(percentage),
+              speed: progressMatch[2] || 'calculating...',
+              eta: progressMatch[3] || 'calculating...',
+            });
+          }
+        }
+
+        // Also check for merger progress
+        const mergerMatch = output.match(/\[Merger\]/);
+        if (mergerMatch && onProgress) {
+          onProgress({
+            percentage: 99,
+            speed: 'merging...',
+            eta: 'almost done',
+          });
+        }
+      });
+
+      ytdlp.stderr.on('data', (data: Buffer) => {
+        const output = data.toString();
+        logger.debug('yt-dlp stderr:', output);
+      });
+
+      ytdlp.on('close', (code) => {
+        if (code === 0) {
+          if (onProgress) {
+            onProgress({ percentage: 100, speed: 'complete', eta: 'done' });
+          }
+          resolve();
+        } else {
+          reject(new Error(`yt-dlp exited with code ${code}`));
+        }
+      });
+
+      ytdlp.on('error', (err) => {
+        reject(new Error(`Failed to start yt-dlp: ${err.message}`));
+      });
+    });
   }
 
   /**
