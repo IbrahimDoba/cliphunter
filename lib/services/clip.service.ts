@@ -1,19 +1,19 @@
-import * as path from 'path';
-import { Scene } from '@/types/clip';
-import { VIDEO_CONFIG } from '@/config/constants';
-import { logger } from '../utils/logger';
+import * as path from "path";
+import { Scene } from "@/types/clip";
+import { VIDEO_CONFIG } from "@/config/constants";
+import { logger } from "../utils/logger";
 import {
   ffmpeg,
   formatTime,
   generateThumbnail,
   createProgressHandler,
-} from '../utils/ffmpeg';
-import { v4 as uuidv4 } from 'uuid';
+} from "../utils/ffmpeg";
+import { v4 as uuidv4 } from "uuid";
 
 export interface ClipGenerationOptions {
   includeSubtitles?: boolean;
   subtitlePath?: string;
-  quality?: 'low' | 'medium' | 'high';
+  quality?: "low" | "medium" | "high";
   titles?: string[]; // Title overlay for each clip
 }
 
@@ -30,7 +30,7 @@ export interface GeneratedClip {
 
 export class ClipService {
   /**
-   * Generate clips from video based on scenes
+   * Generate clips from video based on scenes (parallel processing for speed)
    */
   async generateClips(
     videoPath: string,
@@ -39,16 +39,18 @@ export class ClipService {
     options: ClipGenerationOptions = {},
     onProgress?: (clipIndex: number, percent: number) => void
   ): Promise<GeneratedClip[]> {
-    logger.info('Generating clips', { videoPath, sceneCount: scenes.length });
+    logger.info("Generating clips in parallel", {
+      videoPath,
+      sceneCount: scenes.length,
+    });
 
-    const clips: GeneratedClip[] = [];
     const quality = options.quality || VIDEO_CONFIG.defaults.quality;
     const qualityPreset = VIDEO_CONFIG.qualityPresets[quality];
 
-    for (let i = 0; i < scenes.length; i++) {
-      const scene = scenes[i];
+    // Generate all clips in parallel for faster processing
+    const clipPromises = scenes.map(async (scene, i) => {
       const clipId = uuidv4();
-      const title = options.titles?.[i]; // Get title for this clip
+      const title = options.titles?.[i];
 
       try {
         const clip = await this.generateClip(
@@ -62,14 +64,23 @@ export class ClipService {
           (percent) => onProgress?.(i, percent)
         );
 
-        clips.push(clip);
-        logger.info(`Clip ${i + 1}/${scenes.length} generated`, { clipId, title });
+        logger.info(`Clip ${i + 1}/${scenes.length} generated`, {
+          clipId,
+          title,
+        });
+        return clip;
       } catch (error) {
         logger.error(`Failed to generate clip ${i + 1}`, { error, scene });
+        return null;
       }
-    }
+    });
 
-    logger.info('All clips generated', { clipCount: clips.length });
+    const results = await Promise.all(clipPromises);
+    const clips = results.filter(
+      (clip): clip is GeneratedClip => clip !== null
+    );
+
+    logger.info("All clips generated", { clipCount: clips.length });
 
     return clips;
   }
@@ -82,22 +93,28 @@ export class ClipService {
     scene: Scene,
     clipId: string,
     outputDir: string,
-    qualityPreset: { videoBitrate: string; audioBitrate: string; preset: string },
+    qualityPreset: {
+      videoBitrate: string;
+      audioBitrate: string;
+      preset: string;
+    },
     subtitlePath?: string,
     title?: string,
     onProgress?: (percent: number) => void
   ): Promise<GeneratedClip> {
-    const clipPath = path.join(outputDir, 'clips', `${clipId}.mp4`);
-    const thumbnailPath = path.join(outputDir, 'thumbnails', `${clipId}.jpg`);
+    const clipPath = path.join(outputDir, "clips", `${clipId}.mp4`);
+    const thumbnailPath = path.join(outputDir, "thumbnails", `${clipId}.jpg`);
 
     // Build video filters
     const filters: string[] = [];
 
     // Crop to vertical format (9:16)
-    filters.push('crop=ih*9/16:ih');
+    filters.push("crop=ih*9/16:ih");
 
     // Scale to target resolution
-    filters.push(`scale=${VIDEO_CONFIG.defaults.resolution.width}:${VIDEO_CONFIG.defaults.resolution.height}`);
+    filters.push(
+      `scale=${VIDEO_CONFIG.defaults.resolution.width}:${VIDEO_CONFIG.defaults.resolution.height}`
+    );
 
     // Add title overlay if provided (supports multi-line)
     if (title) {
@@ -105,36 +122,41 @@ export class ClipService {
       filters.push(...titleFilters);
     }
 
-    const filterComplex = filters.join(',');
+    // Add subscribe text at bottom
+    filters.push(this.buildSubscribeFilter());
 
-    // Generate clip
+    const filterComplex = filters.join(",");
+
+    // Generate clip with optimized settings
     await new Promise<void>((resolve, reject) => {
       let command = ffmpeg(videoPath)
         .setStartTime(formatTime(scene.startTime))
         .setDuration(scene.duration)
-        .videoCodec('libx264')
+        .videoCodec("libx264")
         .videoBitrate(qualityPreset.videoBitrate)
         .fps(VIDEO_CONFIG.defaults.fps)
-        .audioCodec('aac')
+        .audioCodec("aac")
         .audioBitrate(qualityPreset.audioBitrate)
         .outputOptions([
           `-preset ${qualityPreset.preset}`,
-          '-movflags +faststart', // Optimize for streaming
+          "-threads 0", // Use all available CPU threads
+          "-tune fastdecode", // Optimize for fast decoding
+          "-movflags +faststart", // Optimize for streaming
         ])
         .videoFilters(filterComplex)
         .output(clipPath);
 
       if (onProgress) {
         command = command.on(
-          'progress',
+          "progress",
           createProgressHandler(scene.duration, onProgress)
         );
       }
 
       command
-        .on('end', () => resolve())
-        .on('error', (err, stdout, stderr) => {
-          logger.error('FFmpeg clip generation error', {
+        .on("end", () => resolve())
+        .on("error", (err, stdout, stderr) => {
+          logger.error("FFmpeg clip generation error", {
             error: err.message,
             stdout,
             stderr,
@@ -142,8 +164,8 @@ export class ClipService {
           });
           reject(err);
         })
-        .on('stderr', (stderrLine) => {
-          logger.debug('FFmpeg stderr:', stderrLine);
+        .on("stderr", (stderrLine) => {
+          logger.debug("FFmpeg stderr:", stderrLine);
         })
         .run();
     });
@@ -169,11 +191,11 @@ export class ClipService {
    */
   private escapeTextForFFmpeg(text: string): string {
     return text
-      .replace(/\\/g, '\\\\\\\\') // Backslashes
+      .replace(/\\/g, "\\\\\\\\") // Backslashes
       .replace(/'/g, "'\\\\\\''") // Single quotes
-      .replace(/:/g, '\\:') // Colons
-      .replace(/%/g, '\\%') // Percent signs
-      .replace(/\n/g, '') // Remove newlines (handle separately)
+      .replace(/:/g, "\\:") // Colons
+      .replace(/%/g, "\\%") // Percent signs
+      .replace(/\n/g, "") // Remove newlines (handle separately)
       .trim();
   }
 
@@ -181,14 +203,17 @@ export class ClipService {
    * Split title into multiple lines at word boundaries
    * Supports up to 3 lines for longer titles
    */
-  private splitTitleIntoLines(title: string, maxCharsPerLine: number = 20): string[] {
+  private splitTitleIntoLines(
+    title: string,
+    maxCharsPerLine: number = 20
+  ): string[] {
     if (title.length <= maxCharsPerLine) {
       return [title];
     }
 
-    const words = title.split(' ');
+    const words = title.split(" ");
     const lines: string[] = [];
-    let currentLine = '';
+    let currentLine = "";
 
     for (const word of words) {
       const testLine = currentLine ? `${currentLine} ${word}` : word;
@@ -222,7 +247,11 @@ export class ClipService {
     const lines = this.splitTitleIntoLines(title, 18);
     const filters: string[] = [];
 
-    logger.info('Building title filters', { title, lines, lineCount: lines.length });
+    logger.info("Building title filters", {
+      title,
+      lines,
+      lineCount: lines.length,
+    });
 
     // Font settings - large, bold, prominent
     const fontSize = 68;
@@ -232,27 +261,51 @@ export class ClipService {
 
     lines.forEach((line, index) => {
       const escapedLine = this.escapeTextForFFmpeg(line);
-      const yPos = baseY + (index * lineHeight);
+      const yPos = baseY + index * lineHeight;
 
       // Main text with thick black border and bold font
       // Use fontfile for Windows compatibility
       filters.push(
         `drawtext=text='${escapedLine}':` +
-        `fontfile='C\\:/Windows/Fonts/impact.ttf':` +
-        `fontsize=${fontSize}:` +
-        `fontcolor=white:` +
-        `borderw=${borderWidth}:` +
-        `bordercolor=black:` +
-        `x=(w-text_w)/2:` +
-        `y=${yPos}:` +
-        `enable='between(t,0,10)':` +
-        `alpha='if(lt(t,9),1,max(0,1-(t-9)))'`
+          `fontfile='C\\:/Windows/Fonts/impact.ttf':` +
+          `fontsize=${fontSize}:` +
+          `fontcolor=white:` +
+          `borderw=${borderWidth}:` +
+          `bordercolor=black:` +
+          `x=(w-text_w)/2:` +
+          `y=${yPos}:` +
+          `enable='between(t,0,10)':` +
+          `alpha='if(lt(t,9),1,max(0,1-(t-9)))'`
       );
     });
 
-    logger.info('Title filters built', { filterCount: filters.length, filters });
+    logger.info("Title filters built", {
+      filterCount: filters.length,
+      filters,
+    });
 
     return filters;
+  }
+
+  /**
+   * Build FFmpeg drawtext filter for "SUBSCRIBE :)" overlay at bottom
+   * Style: Bold red text with black outline, always visible
+   */
+  private buildSubscribeFilter(): string {
+    const fontSize = 62;
+    const borderWidth = 4;
+    const bottomMargin = 150;
+
+    return (
+      `drawtext=text='SUBSCRIBE \\:)':` +
+      `fontfile='C\\:/Windows/Fonts/impact.ttf':` +
+      `fontsize=${fontSize}:` +
+      `fontcolor=red:` +
+      `borderw=${borderWidth}:` +
+      `bordercolor=black:` +
+      `x=(w-text_w)/2:` +
+      `y=h-${bottomMargin}`
+    );
   }
 
   /**
@@ -275,10 +328,10 @@ export class ClipService {
     title: string,
     onProgress?: (percent: number) => void
   ): Promise<void> {
-    const qualityPreset = VIDEO_CONFIG.qualityPresets['medium'];
-    const tempPath = clipPath.replace('.mp4', '_temp.mp4');
+    const qualityPreset = VIDEO_CONFIG.qualityPresets["medium"];
+    const tempPath = clipPath.replace(".mp4", "_temp.mp4");
 
-    logger.info('Adding title to clip', { clipPath, title });
+    logger.info("Adding title to clip", { clipPath, title });
 
     // Get clip duration for progress tracking
     const metadata = await new Promise<number>((resolve, reject) => {
@@ -288,36 +341,39 @@ export class ClipService {
       });
     });
 
-    // Build title filters (supports multi-line)
+    // Build title filters (supports multi-line) and subscribe text
     const titleFilters = this.buildTitleFilters(title);
-    const filterComplex = titleFilters.join(',');
+    titleFilters.push(this.buildSubscribeFilter());
+    const filterComplex = titleFilters.join(",");
 
-    // Re-encode with title
+    // Re-encode with title (optimized for speed)
     await new Promise<void>((resolve, reject) => {
       let command = ffmpeg(clipPath)
-        .videoCodec('libx264')
+        .videoCodec("libx264")
         .videoBitrate(qualityPreset.videoBitrate)
         .fps(VIDEO_CONFIG.defaults.fps)
-        .audioCodec('aac')
+        .audioCodec("aac")
         .audioBitrate(qualityPreset.audioBitrate)
         .outputOptions([
           `-preset ${qualityPreset.preset}`,
-          '-movflags +faststart',
+          "-threads 0",
+          "-tune fastdecode",
+          "-movflags +faststart",
         ])
         .videoFilters(filterComplex)
         .output(tempPath);
 
       if (onProgress) {
         command = command.on(
-          'progress',
+          "progress",
           createProgressHandler(metadata, onProgress)
         );
       }
 
       command
-        .on('end', () => resolve())
-        .on('error', (err, stdout, stderr) => {
-          logger.error('FFmpeg title overlay error', {
+        .on("end", () => resolve())
+        .on("error", (err, stdout, stderr) => {
+          logger.error("FFmpeg title overlay error", {
             error: err.message,
             stdout,
             stderr,
@@ -328,11 +384,11 @@ export class ClipService {
     });
 
     // Replace original with new version
-    const fs = await import('fs/promises');
+    const fs = await import("fs/promises");
     await fs.unlink(clipPath);
     await fs.rename(tempPath, clipPath);
 
-    logger.info('Title added to clip successfully', { clipPath, title });
+    logger.info("Title added to clip successfully", { clipPath, title });
   }
 }
 

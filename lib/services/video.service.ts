@@ -9,17 +9,18 @@ const execPromise = promisify(exec);
 
 export class VideoService {
   /**
-   * Detect scenes in a video using ffmpeg
+   * Detect scenes in a video using ffmpeg (optimized for speed)
    */
   async detectScenes(videoPath: string, threshold = CLIP_CONFIG.sceneThreshold): Promise<Scene[]> {
     logger.info('Starting scene detection', { videoPath, threshold });
 
     try {
-      // Use ffmpeg to detect scene changes
+      // Use ffmpeg to detect scene changes (optimized: analyze every 5th frame)
       const command = [
         'ffmpeg',
         '-i', `"${videoPath}"`,
-        '-vf', `select='gt(scene,${threshold})',showinfo`,
+        '-vf', `select='not(mod(n,5))*gt(scene,${threshold})',showinfo`,
+        '-vsync', 'vfr',
         '-f', 'null',
         '-',
         '2>&1',
@@ -45,16 +46,21 @@ export class VideoService {
       const scenes: Scene[] = [];
       const minDuration = CLIP_CONFIG.minDuration;
       const maxDuration = CLIP_CONFIG.maxDuration;
+      const paddingBefore = CLIP_CONFIG.paddingBefore;
+      const paddingAfter = CLIP_CONFIG.paddingAfter;
 
       for (let i = 0; i < timestamps.length - 1; i++) {
-        const startTime = timestamps[i];
-        let endTime = timestamps[i + 1];
+        // Add padding before scene to capture lead-up
+        let startTime = Math.max(0, timestamps[i] - paddingBefore);
+        // Add padding after scene to capture aftermath
+        let endTime = Math.min(timestamps[i + 1] + paddingAfter, metadata.duration);
 
         // Ensure scene duration is within bounds
-        if (endTime - startTime < minDuration) {
-          // Extend scene to minimum duration
+        const duration = endTime - startTime;
+        if (duration < minDuration) {
+          // Extend scene to minimum duration (extend end time)
           endTime = Math.min(startTime + minDuration, metadata.duration);
-        } else if (endTime - startTime > maxDuration) {
+        } else if (duration > maxDuration) {
           // Cap scene to maximum duration
           endTime = startTime + maxDuration;
         }
@@ -77,25 +83,33 @@ export class VideoService {
   }
 
   /**
-   * Score scenes based on heuristics
+   * Score scenes based on heuristics for finding engaging content
    */
   scoreScenes(scenes: Scene[], duration: number): Scene[] {
-    // Simple heuristic scoring for MVP
     return scenes.map((scene, index) => {
       let score = 0.5; // Base score
 
       // Prefer scenes from the middle of the video (usually more engaging)
+      // Streamers often have highlights in the middle, not intro/outro
       const position = scene.startTime / duration;
-      if (position > 0.2 && position < 0.8) {
-        score += 0.2;
+      if (position > 0.15 && position < 0.85) {
+        score += 0.15;
+      }
+      // Extra boost for middle third (peak content)
+      if (position > 0.3 && position < 0.7) {
+        score += 0.1;
       }
 
-      // Prefer scenes with ideal duration
-      const durationScore = Math.min(
-        scene.duration / CLIP_CONFIG.defaultDuration,
-        1
-      );
-      score += durationScore * 0.3;
+      // Prefer scenes with ideal duration (60-75 seconds is usually best)
+      const idealDuration = 60;
+      const durationDiff = Math.abs(scene.duration - idealDuration);
+      const durationScore = Math.max(0, 1 - (durationDiff / idealDuration));
+      score += durationScore * 0.25;
+
+      // Slight preference for longer clips (more content)
+      if (scene.duration >= 60) {
+        score += 0.1;
+      }
 
       return {
         ...scene,
@@ -105,26 +119,36 @@ export class VideoService {
   }
 
   /**
-   * Select best scenes for clipping
+   * Select best scenes for clipping with good spacing
    */
   selectBestScenes(scenes: Scene[], maxClips: number): Scene[] {
     // Sort by score descending
     const sorted = [...scenes].sort((a, b) => b.score - a.score);
 
-    // Select top scenes, ensuring they don't overlap
+    // Select top scenes, ensuring they don't overlap and have minimum spacing
     const selected: Scene[] = [];
+    const minSpacing = CLIP_CONFIG.minTimeBetweenClips;
 
     for (const scene of sorted) {
       if (selected.length >= maxClips) break;
 
-      // Check if scene overlaps with already selected scenes
-      const overlaps = selected.some(
-        (s) =>
+      // Check if scene overlaps or is too close to already selected scenes
+      const tooClose = selected.some((s) => {
+        // Check for overlap
+        const overlaps =
           (scene.startTime >= s.startTime && scene.startTime < s.endTime) ||
-          (scene.endTime > s.startTime && scene.endTime <= s.endTime)
-      );
+          (scene.endTime > s.startTime && scene.endTime <= s.endTime) ||
+          (scene.startTime <= s.startTime && scene.endTime >= s.endTime);
 
-      if (!overlaps) {
+        // Check for minimum spacing
+        const spacingOk =
+          scene.endTime + minSpacing < s.startTime ||
+          scene.startTime > s.endTime + minSpacing;
+
+        return overlaps || !spacingOk;
+      });
+
+      if (!tooClose) {
         selected.push(scene);
       }
     }

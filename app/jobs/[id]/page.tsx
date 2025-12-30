@@ -8,6 +8,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Progress } from '@/components/ui/progress';
 import { Input } from '@/components/ui/input';
 import { YouTubeUploadButton } from '@/components/youtube-upload-button';
+import { BatchYouTubeUpload } from '@/components/batch-youtube-upload';
+import { BatchTitleEditor } from '@/components/batch-title-editor';
 import { GetJobStatusResponse } from '@/types/api';
 
 export default function JobPage() {
@@ -20,6 +22,8 @@ export default function JobPage() {
   const [editingClipId, setEditingClipId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [regenerating, setRegenerating] = useState<string | null>(null);
+  const [showBatchUpload, setShowBatchUpload] = useState(false);
+  const [showBatchTitleEditor, setShowBatchTitleEditor] = useState(false);
 
   useEffect(() => {
     if (!jobId) return;
@@ -183,10 +187,38 @@ export default function JobPage() {
       {job.status === 'completed' && job.result && (
         <Card>
           <CardHeader>
-            <CardTitle>{job.result.videoTitle}</CardTitle>
-            <CardDescription>
-              {job.result.clips.length} clip{job.result.clips.length !== 1 ? 's' : ''} generated
-            </CardDescription>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <CardTitle>{job.result.videoTitle}</CardTitle>
+                <CardDescription>
+                  {job.result.clips.length} clip{job.result.clips.length !== 1 ? 's' : ''} generated
+                </CardDescription>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  onClick={() => setShowBatchTitleEditor(true)}
+                  variant="outline"
+                  className="gap-2"
+                >
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                  </svg>
+                  Batch Edit Titles
+                </Button>
+                <Button
+                  onClick={() => setShowBatchUpload(true)}
+                  className="gap-2"
+                >
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="17 8 12 3 7 8" />
+                    <line x1="12" y1="3" x2="12" y2="15" />
+                  </svg>
+                  Batch Upload All
+                </Button>
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -282,6 +314,44 @@ export default function JobPage() {
           <Button variant="outline">Process Another Video</Button>
         </Link>
       </div>
+
+      {/* Batch Title Editor Modal */}
+      {showBatchTitleEditor && job.result && (
+        <BatchTitleEditor
+          jobId={jobId}
+          clips={job.result.clips.map((clip) => ({
+            id: clip.id,
+            title: clip.title,
+          }))}
+          onClose={() => setShowBatchTitleEditor(false)}
+          onComplete={(updatedTitles) => {
+            // Update local state with new titles
+            if (job.result) {
+              const updatedClips = job.result.clips.map((clip) => {
+                const updated = updatedTitles.find((u) => u.clipId === clip.id);
+                return updated ? { ...clip, title: updated.title } : clip;
+              });
+              setJob({
+                ...job,
+                result: { ...job.result, clips: updatedClips },
+              });
+            }
+          }}
+        />
+      )}
+
+      {/* Batch Upload Modal */}
+      {showBatchUpload && job.result && (
+        <BatchYouTubeUpload
+          clips={job.result.clips.map((clip) => ({
+            id: clip.id,
+            videoUrl: clip.videoUrl,
+            title: clip.title,
+          }))}
+          videoTitle={job.result.videoTitle}
+          onClose={() => setShowBatchUpload(false)}
+        />
+      )}
     </div>
   );
 }

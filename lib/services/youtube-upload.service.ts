@@ -1,9 +1,12 @@
 import { google, Auth } from 'googleapis';
 import { v4 as uuidv4 } from 'uuid';
 import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 import { db } from '../db/client';
 import { env } from '@/config/env';
 import { logger } from '../utils/logger';
+import { generateThumbnail } from '../utils/ffmpeg';
 import {
   YouTubeAccount,
   YouTubeAccountRecord,
@@ -204,6 +207,7 @@ export class YouTubeUploadService {
 
   /**
    * Upload video to YouTube with progress tracking
+   * Automatically extracts a thumbnail at 2 seconds and uploads it
    */
   async uploadVideo(
     clipPath: string,
@@ -240,6 +244,18 @@ export class YouTubeUploadService {
       privacy: options.privacy,
       fileSize,
     });
+
+    // Extract thumbnail at 2 seconds for YouTube
+    const thumbnailPath = path.join(os.tmpdir(), `yt-thumb-${uuidv4()}.jpg`);
+    let thumbnailExtracted = false;
+
+    try {
+      await generateThumbnail(clipPath, thumbnailPath, 2);
+      thumbnailExtracted = fs.existsSync(thumbnailPath);
+      logger.info('Thumbnail extracted for YouTube upload', { thumbnailPath, success: thumbnailExtracted });
+    } catch (err: any) {
+      logger.warn('Failed to extract thumbnail, will upload without custom thumbnail', { error: err.message });
+    }
 
     // Create upload stream
     const fileStream = fs.createReadStream(clipPath);
@@ -280,15 +296,58 @@ export class YouTubeUploadService {
       throw new Error('Upload completed but no video ID returned');
     }
 
+    const videoId = response.data.id;
+
+    // Upload custom thumbnail if extraction was successful
+    if (thumbnailExtracted) {
+      try {
+        await this.uploadThumbnail(youtube, videoId, thumbnailPath);
+        logger.info('Custom thumbnail uploaded successfully', { videoId });
+      } catch (err: any) {
+        // Log but don't fail - thumbnail upload requires verified channel
+        logger.warn('Failed to upload custom thumbnail (channel may need verification)', {
+          error: err.message,
+          videoId
+        });
+      } finally {
+        // Clean up temporary thumbnail file
+        try {
+          fs.unlinkSync(thumbnailPath);
+        } catch {
+          // Ignore cleanup errors
+        }
+      }
+    }
+
     const result: YouTubeUploadResult = {
-      videoId: response.data.id,
-      videoUrl: `https://www.youtube.com/watch?v=${response.data.id}`,
+      videoId,
+      videoUrl: `https://www.youtube.com/watch?v=${videoId}`,
       title: options.title,
     };
 
     logger.info('YouTube upload completed', result);
 
     return result;
+  }
+
+  /**
+   * Upload a custom thumbnail for a video
+   * Note: Requires channel to be verified for custom thumbnails
+   */
+  private async uploadThumbnail(
+    youtube: ReturnType<typeof google.youtube>,
+    videoId: string,
+    thumbnailPath: string
+  ): Promise<void> {
+    const thumbnailStream = fs.createReadStream(thumbnailPath);
+
+    await youtube.thumbnails.set({
+      videoId,
+      media: {
+        mimeType: 'image/jpeg',
+        body: thumbnailStream,
+      },
+    });
   }
 
   /**

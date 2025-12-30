@@ -151,8 +151,8 @@ export function YouTubeUploadModal({
               <CardTitle>Upload to YouTube</CardTitle>
               <CardDescription>Set the details for your video</CardDescription>
             </CardHeader>
-            <CardContent>
-              <form onSubmit={handleSubmit} className="space-y-4">
+            <CardContent className="pt-4">
+              <form onSubmit={handleSubmit} className="space-y-5">
                 {/* Auto-generate button */}
                 <Button
                   type="button"
@@ -250,9 +250,9 @@ export function YouTubeUploadModal({
                   </select>
                 </div>
 
-                {error && <p className="text-sm text-destructive">{error}</p>}
+                {error && <p className="text-sm text-destructive mt-2">{error}</p>}
 
-                <div className="flex gap-2 pt-2">
+                <div className="flex gap-3 pt-4">
                   <Button type="button" variant="outline" onClick={onClose} className="flex-1">
                     Cancel
                   </Button>
@@ -271,7 +271,7 @@ export function YouTubeUploadModal({
               <CardTitle>Uploading to YouTube</CardTitle>
               <CardDescription>Please wait while your video uploads...</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-5 pt-4">
               <Progress value={progress} />
               <p className="text-center text-sm text-muted-foreground">
                 {Math.round(progress)}% complete
@@ -286,7 +286,7 @@ export function YouTubeUploadModal({
               <CardTitle className="text-green-600">Upload Complete!</CardTitle>
               <CardDescription>Your video has been uploaded to YouTube</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-5 pt-4">
               <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
                 <p className="text-sm font-medium">{result.title}</p>
               </div>
@@ -317,10 +317,10 @@ export function YouTubeUploadModal({
             <CardHeader>
               <CardTitle className="text-destructive">Upload Failed</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-5 pt-4">
               <p className="text-sm text-muted-foreground">{error}</p>
 
-              <div className="flex gap-2">
+              <div className="flex gap-3">
                 <Button variant="outline" onClick={onClose} className="flex-1">
                   Close
                 </Button>

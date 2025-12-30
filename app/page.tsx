@@ -5,10 +5,13 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 export default function Home() {
   const router = useRouter();
   const [videoUrl, setVideoUrl] = useState('');
+  const [maxClips, setMaxClips] = useState('5');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -26,7 +29,7 @@ export default function Home() {
         body: JSON.stringify({
           videoUrl,
           options: {
-            maxClips: 5,
+            maxClips: parseInt(maxClips, 10),
             includeSubtitles: true,
           },
         }),
@@ -59,7 +62,11 @@ export default function Home() {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
+              <Label htmlFor="video-url" className="text-sm font-medium mb-2 block">
+                YouTube URL
+              </Label>
               <Input
+                id="video-url"
                 type="url"
                 placeholder="https://www.youtube.com/watch?v=..."
                 value={videoUrl}
@@ -70,6 +77,24 @@ export default function Home() {
               />
               {error && <p className="text-sm text-destructive mt-2">{error}</p>}
             </div>
+
+            <div>
+              <Label htmlFor="max-clips" className="text-sm font-medium mb-2 block">
+                Number of Clips
+              </Label>
+              <Select value={maxClips} onValueChange={setMaxClips} disabled={isLoading}>
+                <SelectTrigger id="max-clips" className="w-full">
+                  <SelectValue placeholder="Select number of clips" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="3">3 clips</SelectItem>
+                  <SelectItem value="5">5 clips</SelectItem>
+                  <SelectItem value="7">7 clips</SelectItem>
+                  <SelectItem value="10">10 clips</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
             <Button type="submit" disabled={isLoading} className="w-full">
               {isLoading ? 'Creating Job...' : 'Generate Clips'}
             </Button>

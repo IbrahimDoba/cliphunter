@@ -12,22 +12,22 @@ export const VIDEO_CONFIG = {
     horizontal: { width: 16, height: 9 },
   },
 
-  // Video quality presets
+  // Video quality presets (optimized for speed)
   qualityPresets: {
     low: {
       videoBitrate: '500k',
       audioBitrate: '64k',
-      preset: 'veryfast',
+      preset: 'ultrafast',
     },
     medium: {
-      videoBitrate: '1000k',
+      videoBitrate: '1500k',
       audioBitrate: '128k',
-      preset: 'fast',
+      preset: 'ultrafast',
     },
     high: {
-      videoBitrate: '2500k',
+      videoBitrate: '3000k',
       audioBitrate: '192k',
-      preset: 'medium',
+      preset: 'superfast',
     },
   },
 
@@ -42,19 +42,25 @@ export const VIDEO_CONFIG = {
 
 export const CLIP_CONFIG = {
   // Minimum clip duration in seconds
-  minDuration: 15,
+  minDuration: 60,
 
   // Maximum clip duration in seconds
-  maxDuration: 60,
+  maxDuration: 90,
 
   // Default clip duration in seconds
-  defaultDuration: 45,
+  defaultDuration: 60,
 
-  // Scene detection threshold (0-1)
-  sceneThreshold: 0.4,
+  // Scene detection threshold (0-1, lower = more sensitive)
+  sceneThreshold: 0.2,
 
   // Minimum time between clips in seconds
   minTimeBetweenClips: 5,
+
+  // Padding in seconds to add before scene start (captures lead-up)
+  paddingBefore: 3,
+
+  // Padding in seconds to add after scene end (captures aftermath)
+  paddingAfter: 5,
 } as const;
 
 export const SUBTITLE_CONFIG = {
