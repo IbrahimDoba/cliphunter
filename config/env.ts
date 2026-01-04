@@ -27,8 +27,12 @@ const envSchema = z.object({
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   GOOGLE_REDIRECT_URI: z.string().default('http://localhost:3000/api/youtube/callback'),
 
-  // OpenAI API for auto-generating titles/descriptions
+  // OpenAI API for auto-generating titles/descriptions (legacy, optional fallback)
   OPENAI_API_KEY: z.string().optional(),
+
+  // Google Gemini API for video analysis and clip detection
+  GOOGLE_GEMINI_API_KEY: z.string().optional(),
+  GEMINI_MODEL: z.string().default('gemini-2.0-flash-exp'),
 });
 
 // Parse and validate environment variables

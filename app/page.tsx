@@ -1,36 +1,47 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 export default function Home() {
   const router = useRouter();
-  const [videoUrl, setVideoUrl] = useState('');
-  const [maxClips, setMaxClips] = useState('5');
+  const [videoUrl, setVideoUrl] = useState("");
+  const [maxClips, setMaxClips] = useState("5");
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
+    setError("");
     setIsLoading(true);
 
     try {
-      const response = await fetch('/api/jobs/create', {
-        method: 'POST',
+      const response = await fetch("/api/jobs/create", {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
           videoUrl,
           options: {
             maxClips: parseInt(maxClips, 10),
-            includeSubtitles: true,
           },
         }),
       });
@@ -38,13 +49,13 @@ export default function Home() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error?.message || 'Failed to create job');
+        throw new Error(data.error?.message || "Failed to create job");
       }
 
       // Redirect to job status page
       router.push(`/jobs/${data.jobId}`);
     } catch (err: any) {
-      setError(err.message || 'Something went wrong');
+      setError(err.message || "Something went wrong");
       setIsLoading(false);
     }
   };
@@ -55,14 +66,17 @@ export default function Home() {
         <CardHeader>
           <CardTitle>Create Short Clips from YouTube</CardTitle>
           <CardDescription>
-            Paste a YouTube URL below and we'll automatically generate engaging short clips
-            perfect for TikTok, Instagram Reels, and YouTube Shorts.
+            Paste a YouTube URL below and we'll automatically generate engaging
+            short clips perfect for TikTok, Instagram Reels, and YouTube Shorts.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <Label htmlFor="video-url" className="text-sm font-medium mb-2 block">
+              <Label
+                htmlFor="video-url"
+                className="text-sm font-medium mb-2 block"
+              >
                 YouTube URL
               </Label>
               <Input
@@ -75,14 +89,23 @@ export default function Home() {
                 required
                 className="text-base"
               />
-              {error && <p className="text-sm text-destructive mt-2">{error}</p>}
+              {error && (
+                <p className="text-sm text-destructive mt-2">{error}</p>
+              )}
             </div>
 
             <div>
-              <Label htmlFor="max-clips" className="text-sm font-medium mb-2 block">
+              <Label
+                htmlFor="max-clips"
+                className="text-sm font-medium mb-2 block"
+              >
                 Number of Clips
               </Label>
-              <Select value={maxClips} onValueChange={setMaxClips} disabled={isLoading}>
+              <Select
+                value={maxClips}
+                onValueChange={setMaxClips}
+                disabled={isLoading}
+              >
                 <SelectTrigger id="max-clips" className="w-full">
                   <SelectValue placeholder="Select number of clips" />
                 </SelectTrigger>
@@ -96,7 +119,7 @@ export default function Home() {
             </div>
 
             <Button type="submit" disabled={isLoading} className="w-full">
-              {isLoading ? 'Creating Job...' : 'Generate Clips'}
+              {isLoading ? "Creating Job..." : "Generate Clips"}
             </Button>
           </form>
 
@@ -105,7 +128,9 @@ export default function Home() {
             <ol className="text-sm text-muted-foreground space-y-2 list-decimal list-inside">
               <li>Paste a YouTube video URL</li>
               <li>We analyze the video to find engaging moments</li>
-              <li>Clips are automatically generated in vertical format (9:16)</li>
+              <li>
+                Clips are automatically generated in vertical format (9:16)
+              </li>
               <li>Download your clips ready for social media</li>
             </ol>
           </div>

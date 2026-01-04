@@ -320,18 +320,52 @@ export function YouTubeUploadModal({
             <CardContent className="space-y-5 pt-4">
               <p className="text-sm text-muted-foreground">{error}</p>
 
-              <div className="flex gap-3">
-                <Button variant="outline" onClick={onClose} className="flex-1">
+              {error?.includes('invalid_grant') && (
+                <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg">
+                  <p className="text-sm text-yellow-800 dark:text-yellow-200">
+                    Your YouTube session has expired. Please reconnect your account.
+                  </p>
+                </div>
+              )}
+
+              <div className="flex flex-col gap-3">
+                {error?.includes('invalid_grant') ? (
+                  <Button
+                    onClick={async () => {
+                      // Disconnect and start new OAuth flow
+                      await fetch('/api/youtube/auth', { method: 'DELETE' });
+                      const response = await fetch('/api/youtube/auth');
+                      const data = await response.json();
+                      if (data.authUrl) {
+                        const width = 600;
+                        const height = 700;
+                        const left = window.screenX + (window.outerWidth - width) / 2;
+                        const top = window.screenY + (window.outerHeight - height) / 2;
+                        window.open(
+                          data.authUrl,
+                          'youtube-auth',
+                          `width=${width},height=${height},left=${left},top=${top}`
+                        );
+                      }
+                      onClose();
+                    }}
+                    className="w-full"
+                  >
+                    Reconnect YouTube
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={() => {
+                      setError(null);
+                      setState('form');
+                    }}
+                    className="w-full"
+                  >
+                    Try Again
+                  </Button>
+                )}
+                <Button variant="outline" onClick={onClose} className="w-full">
                   Close
-                </Button>
-                <Button
-                  onClick={() => {
-                    setError(null);
-                    setState('form');
-                  }}
-                  className="flex-1"
-                >
-                  Try Again
                 </Button>
               </div>
             </CardContent>

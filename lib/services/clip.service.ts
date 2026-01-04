@@ -9,6 +9,7 @@ import {
   createProgressHandler,
 } from "../utils/ffmpeg";
 import { v4 as uuidv4 } from "uuid";
+import { ClipSuggestion } from "./gemini.service";
 
 export interface ClipGenerationOptions {
   includeSubtitles?: boolean;
@@ -83,6 +84,65 @@ export class ClipService {
     logger.info("All clips generated", { clipCount: clips.length });
 
     return clips;
+  }
+
+  /**
+   * Generate clips from Gemini's ClipSuggestion results
+   * Converts Gemini's timestamp format (MM:SS) to seconds and generates clips
+   */
+  async generateClipsFromSuggestions(
+    videoPath: string,
+    suggestions: ClipSuggestion[],
+    outputDir: string,
+    options: ClipGenerationOptions = {},
+    onProgress?: (clipIndex: number, percent: number) => void
+  ): Promise<GeneratedClip[]> {
+    logger.info("Generating clips from Gemini suggestions", {
+      videoPath,
+      suggestionCount: suggestions.length,
+    });
+
+    // Convert ClipSuggestions to Scene-like objects
+    const scenes: Scene[] = suggestions.map((suggestion) => {
+      const startTime = this.timestampToSeconds(suggestion.start_time);
+      const endTime = this.timestampToSeconds(suggestion.end_time);
+
+      return {
+        startTime,
+        endTime,
+        duration: endTime - startTime,
+        score: suggestion.virality_score / 10, // Normalize to 0-1 range
+      };
+    });
+
+    // Extract titles from suggestions
+    const titles = suggestions.map((s) => s.title);
+
+    // Use existing generateClips method with titles
+    return this.generateClips(
+      videoPath,
+      scenes,
+      outputDir,
+      { ...options, titles },
+      onProgress
+    );
+  }
+
+  /**
+   * Convert MM:SS or HH:MM:SS timestamp to seconds
+   */
+  private timestampToSeconds(timestamp: string): number {
+    const parts = timestamp.split(":").map(Number);
+
+    if (parts.length === 2) {
+      // MM:SS
+      return parts[0] * 60 + parts[1];
+    } else if (parts.length === 3) {
+      // HH:MM:SS
+      return parts[0] * 3600 + parts[1] * 60 + parts[2];
+    }
+
+    return 0;
   }
 
   /**
@@ -171,7 +231,7 @@ export class ClipService {
     });
 
     // Generate thumbnail
-    await generateThumbnail(clipPath, thumbnailPath, 0);
+    await generateThumbnail(clipPath, thumbnailPath, 1);
 
     return {
       id: clipId,
@@ -297,7 +357,7 @@ export class ClipService {
     const bottomMargin = 150;
 
     return (
-      `drawtext=text='SUBSCRIBE \\:)':` +
+      `drawtext=text='SUBSCRIBE \\\\:)':` +
       `fontfile='C\\:/Windows/Fonts/impact.ttf':` +
       `fontsize=${fontSize}:` +
       `fontcolor=red:` +
@@ -341,7 +401,7 @@ export class ClipService {
       });
     });
 
-    // Build title filters (supports multi-line) and subscribe text
+    // Build title filters (supports multisi-line) and subscribe text
     const titleFilters = this.buildTitleFilters(title);
     titleFilters.push(this.buildSubscribeFilter());
     const filterComplex = titleFilters.join(",");

@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
 import { APP_CONFIG } from '@/config/constants';
+import { YouTubeStatus } from '@/components/youtube-status';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -20,9 +21,12 @@ export default function RootLayout({
       <body className={inter.className}>
         <div className="min-h-screen bg-gradient-to-b from-background to-muted/20">
           <header className="border-b">
-            <div className="container mx-auto px-4 py-4">
-              <h1 className="text-2xl font-bold">{APP_CONFIG.name}</h1>
-              <p className="text-sm text-muted-foreground">{APP_CONFIG.description}</p>
+            <div className="container mx-auto px-4 py-4 flex items-center justify-between">
+              <div>
+                <h1 className="text-2xl font-bold">{APP_CONFIG.name}</h1>
+                <p className="text-sm text-muted-foreground">{APP_CONFIG.description}</p>
+              </div>
+              <YouTubeStatus />
             </div>
           </header>
           <main className="container mx-auto px-4 py-8">{children}</main>

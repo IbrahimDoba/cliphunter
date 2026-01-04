@@ -117,12 +117,44 @@ export function YouTubeUploadButton({
     setShowModal(true);
   };
 
+  const handleReconnect = async () => {
+    setIsConnecting(true);
+    setError(null);
+
+    try {
+      // Disconnect first using existing DELETE endpoint
+      await fetch('/api/youtube/auth', { method: 'DELETE' });
+      setIsConnected(false);
+      setAccountInfo(null);
+
+      // Then start new OAuth flow
+      const response = await fetch('/api/youtube/auth');
+      const data = await response.json();
+
+      if (data.authUrl) {
+        const width = 600;
+        const height = 700;
+        const left = window.screenX + (window.outerWidth - width) / 2;
+        const top = window.screenY + (window.outerHeight - height) / 2;
+
+        window.open(
+          data.authUrl,
+          'youtube-auth',
+          `width=${width},height=${height},left=${left},top=${top}`
+        );
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to reconnect');
+      setIsConnecting(false);
+    }
+  };
+
   if (error) {
     return (
       <div className="space-y-2">
         <p className="text-sm text-destructive">{error}</p>
-        <Button variant="outline" size="sm" onClick={handleConnect} disabled={isConnecting}>
-          {isConnecting ? 'Connecting...' : 'Try Again'}
+        <Button variant="outline" size="sm" onClick={handleReconnect} disabled={isConnecting}>
+          {isConnecting ? 'Reconnecting...' : 'Reconnect YouTube'}
         </Button>
       </div>
     );
@@ -154,11 +186,16 @@ export function YouTubeUploadButton({
           </svg>
           Upload to YouTube
         </Button>
-        {accountInfo?.channelTitle && (
-          <p className="text-xs text-muted-foreground text-center">
-            Connected: {accountInfo.channelTitle}
-          </p>
-        )}
+        <div className="text-xs text-muted-foreground text-center">
+          {accountInfo?.channelTitle && <span>Connected: {accountInfo.channelTitle} · </span>}
+          <button
+            onClick={handleReconnect}
+            disabled={isConnecting}
+            className="text-primary hover:underline disabled:opacity-50"
+          >
+            {isConnecting ? 'Reconnecting...' : 'Reconnect'}
+          </button>
+        </div>
       </div>
 
       {showModal && (
