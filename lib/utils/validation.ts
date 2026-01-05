@@ -45,6 +45,7 @@ export const createJobSchema = z.object({
         .optional(),
       maxClips: z.number().min(1).max(10).optional(),
       includeSubtitles: z.boolean().optional(),
+      showSubscribe: z.boolean().optional(),
     })
     .optional(),
 });

@@ -249,32 +249,7 @@ class VideoProcessor {
       throw new Error("Failed to obtain clips or video file");
     }
 
-    // Phase 3: Transcription (if requested)
-    let subtitlePath: string | null = null;
-    if (job.options.includeSubtitles) {
-      await this.updateProgress(
-        job.id,
-        PROCESSING_STEPS.TRANSCRIBING,
-        50,
-        "Transcribing audio..."
-      );
-      try {
-        // We use Gemini for transcription on the downloaded file (segments or full)
-        const transcript = await geminiService.transcribeVideo(videoPath!);
-
-        // Convert to SRT and save
-        const jobDir = await storageService.ensureJobDir(job.id);
-        const srtPath = path.join(jobDir, "subtitles.srt");
-        await this.saveTranscriptToSrt(transcript, srtPath);
-        subtitlePath = srtPath;
-
-        logger.info("Generated subtitles with Gemini", { path: subtitlePath });
-      } catch (err) {
-        logger.warn("Transcription failed, continuing without subtitles", err);
-      }
-    }
-
-    // Phase 4: Generate Clips
+    // Phase 3: Generate Clips (subtitles added in Phase 4 if enabled)
     await this.updateProgress(
       job.id,
       PROCESSING_STEPS.GENERATING,
@@ -324,13 +299,12 @@ class VideoProcessor {
       processableScenes,
       jobDir,
       {
-        includeSubtitles: job.options.includeSubtitles,
-        subtitlePath: subtitlePath || undefined,
         quality: "medium",
+        showSubscribe: job.options.showSubscribe ?? true,
       },
       (clipIndex, percent) => {
-        const baseProgress = 60;
-        const totalProgress = baseProgress + (percent / 100) * 35; // alloc 35%
+        const baseProgress = 50;
+        const totalProgress = baseProgress + (percent / 100) * 25; // alloc 25% for generation
 
         this.updateProgress(
           job.id,
@@ -340,6 +314,48 @@ class VideoProcessor {
         ).catch((e) => logger.error("Progress update failed", e));
       }
     );
+
+    // Phase 4: Add Subtitles (if requested)
+    if (job.options.includeSubtitles) {
+      await this.updateProgress(
+        job.id,
+        PROCESSING_STEPS.TRANSCRIBING,
+        75,
+        "Adding subtitles to clips..."
+      );
+
+      for (let i = 0; i < clips.length; i++) {
+        const clip = clips[i];
+        try {
+          await this.updateProgress(
+            job.id,
+            PROCESSING_STEPS.TRANSCRIBING,
+            75 + Math.round((i / clips.length) * 20),
+            `Transcribing clip ${i + 1}/${clips.length}...`
+          );
+
+          // Transcribe the clip to get word-level timestamps
+          const subtitleChunks = await geminiService.transcribeForSubtitles(
+            clip.videoPath,
+            3 // 3 words per chunk
+          );
+
+          if (subtitleChunks.length > 0) {
+            // Add subtitles to the clip
+            await clipService.addSubtitlesToClip(clip.videoPath, subtitleChunks);
+            logger.info(`Added subtitles to clip ${i + 1}`, {
+              clipId: clip.id,
+              chunkCount: subtitleChunks.length,
+            });
+          }
+        } catch (err) {
+          logger.warn(`Failed to add subtitles to clip ${i + 1}, continuing`, {
+            error: err,
+            clipId: clip.id,
+          });
+        }
+      }
+    }
 
     // Phase 5: Build Result
     // Use original suggestions for metadata (titles, scores)

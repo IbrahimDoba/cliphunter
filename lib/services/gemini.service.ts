@@ -36,6 +36,18 @@ export interface TranscriptSegment {
   text: string;
 }
 
+export interface WordTimestamp {
+  word: string;
+  start: number; // seconds
+  end: number; // seconds
+}
+
+export interface SubtitleChunk {
+  text: string;
+  start: number; // seconds
+  end: number; // seconds
+}
+
 export class GeminiService {
   private ai: GoogleGenAI | null = null;
 
@@ -527,6 +539,148 @@ Identify different speakers if multiple people are talking.
       logger.error("Failed to parse transcript", { error: error.message });
       throw new Error("Failed to parse transcript response");
     }
+  }
+
+  /**
+   * Transcribe audio/video with word-level timestamps for subtitle generation
+   * Returns chunks of ~3 words with start/end times
+   */
+  async transcribeForSubtitles(
+    videoPath: string,
+    wordsPerChunk: number = 3
+  ): Promise<SubtitleChunk[]> {
+    logger.info("Transcribing video for subtitles with Gemini", {
+      videoPath,
+      wordsPerChunk,
+    });
+
+    try {
+      const ai = this.getClient();
+
+      // Upload video file to Gemini
+      const uploadedFile = await this.uploadFile(ai, videoPath);
+
+      logger.info("Video uploaded for subtitle transcription, analyzing...");
+
+      const prompt = `Transcribe the audio in this video with PRECISE word-level timestamps.
+
+Return ONLY a valid JSON array with NO markdown formatting, NO code blocks.
+The response should start with [ and end with ]
+
+Each element should have:
+- "word": the spoken word (string)
+- "start": start time in seconds (number, can be decimal like 1.5)
+- "end": end time in seconds (number)
+
+Example format:
+[{"word":"Hello","start":0.0,"end":0.3},{"word":"world","start":0.4,"end":0.8}]
+
+IMPORTANT:
+- Include EVERY spoken word
+- Timestamps must be accurate to within 0.1 seconds
+- Do not include punctuation as separate entries
+- Include punctuation attached to the word (e.g., "Hello," not "Hello" ",")
+- Words should be in the order they are spoken`;
+
+      const response = await ai.models.generateContent({
+        model: env.GEMINI_MODEL || "gemini-2.5-flash",
+        contents: createUserContent([
+          createPartFromUri(uploadedFile.uri!, uploadedFile.mimeType!),
+          prompt,
+        ]),
+      });
+
+      // Cleanup uploaded file
+      try {
+        await ai.files.delete({ name: uploadedFile.name! });
+      } catch (e) {
+        logger.warn("Failed to delete file after transcription", e);
+      }
+
+      const text = response.text;
+      const words = this.parseWordTimestamps(text!);
+
+      // Chunk words into groups of ~wordsPerChunk
+      const chunks = this.chunkWords(words, wordsPerChunk);
+
+      logger.info("Subtitle transcription completed", {
+        wordCount: words.length,
+        chunkCount: chunks.length,
+      });
+
+      return chunks;
+    } catch (error: any) {
+      logger.error("Gemini subtitle transcription failed", {
+        error: error.message,
+      });
+      throw new Error(`Gemini subtitle transcription failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Parse word timestamps from Gemini response
+   */
+  private parseWordTimestamps(text: string): WordTimestamp[] {
+    try {
+      let cleaned = text.trim();
+
+      // Remove markdown code blocks if present
+      if (cleaned.startsWith("```")) {
+        cleaned = cleaned
+          .replace(/```json?\n?/g, "")
+          .replace(/```\n?/g, "")
+          .trim();
+      }
+
+      // Find JSON array
+      const jsonStart = cleaned.indexOf("[");
+      const jsonEnd = cleaned.lastIndexOf("]");
+
+      if (jsonStart === -1 || jsonEnd === -1) {
+        throw new Error("No JSON array found in response");
+      }
+
+      cleaned = cleaned.substring(jsonStart, jsonEnd + 1);
+      const parsed = JSON.parse(cleaned) as WordTimestamp[];
+
+      // Validate and filter
+      return parsed.filter(
+        (w) =>
+          typeof w.word === "string" &&
+          typeof w.start === "number" &&
+          typeof w.end === "number" &&
+          w.word.trim().length > 0
+      );
+    } catch (error: any) {
+      logger.error("Failed to parse word timestamps", {
+        error: error.message,
+        text: text.slice(0, 500),
+      });
+      throw new Error(`Failed to parse word timestamps: ${error.message}`);
+    }
+  }
+
+  /**
+   * Chunk words into groups for subtitle display
+   */
+  private chunkWords(
+    words: WordTimestamp[],
+    wordsPerChunk: number
+  ): SubtitleChunk[] {
+    const chunks: SubtitleChunk[] = [];
+
+    for (let i = 0; i < words.length; i += wordsPerChunk) {
+      const chunkWords = words.slice(i, i + wordsPerChunk);
+      if (chunkWords.length === 0) continue;
+
+      const text = chunkWords.map((w) => w.word).join(" ");
+      const start = chunkWords[0].start;
+      const end = chunkWords[chunkWords.length - 1].end;
+
+      chunks.push({ text, start, end });
+    }
+
+    return chunks;
   }
 
   /**

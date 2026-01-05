@@ -9,13 +9,15 @@ import {
   createProgressHandler,
 } from "../utils/ffmpeg";
 import { v4 as uuidv4 } from "uuid";
-import { ClipSuggestion } from "./gemini.service";
+import { ClipSuggestion, SubtitleChunk } from "./gemini.service";
 
 export interface ClipGenerationOptions {
   includeSubtitles?: boolean;
   subtitlePath?: string;
+  subtitleChunks?: SubtitleChunk[][]; // Array of subtitle chunks per clip
   quality?: "low" | "medium" | "high";
   titles?: string[]; // Title overlay for each clip
+  showSubscribe?: boolean; // Show "SUBSCRIBE :)" overlay at bottom
 }
 
 export interface GeneratedClip {
@@ -52,6 +54,7 @@ export class ClipService {
     const clipPromises = scenes.map(async (scene, i) => {
       const clipId = uuidv4();
       const title = options.titles?.[i];
+      const subtitleChunks = options.subtitleChunks?.[i];
 
       try {
         const clip = await this.generateClip(
@@ -62,6 +65,8 @@ export class ClipService {
           qualityPreset,
           options.subtitlePath,
           title,
+          subtitleChunks,
+          options.showSubscribe ?? true, // Default to showing subscribe
           (percent) => onProgress?.(i, percent)
         );
 
@@ -160,6 +165,8 @@ export class ClipService {
     },
     subtitlePath?: string,
     title?: string,
+    subtitleChunks?: SubtitleChunk[],
+    showSubscribe: boolean = true,
     onProgress?: (percent: number) => void
   ): Promise<GeneratedClip> {
     const clipPath = path.join(outputDir, "clips", `${clipId}.mp4`);
@@ -182,8 +189,16 @@ export class ClipService {
       filters.push(...titleFilters);
     }
 
-    // Add subscribe text at bottom
-    filters.push(this.buildSubscribeFilter());
+    // Add subtitle overlays if provided (synced captions)
+    if (subtitleChunks && subtitleChunks.length > 0) {
+      const subtitleFilters = this.buildSubtitleFilters(subtitleChunks);
+      filters.push(...subtitleFilters);
+    }
+
+    // Add subscribe text at bottom (optional)
+    if (showSubscribe) {
+      filters.push(this.buildSubscribeFilter());
+    }
 
     const filterComplex = filters.join(",");
 
@@ -355,9 +370,10 @@ export class ClipService {
     const fontSize = 62;
     const borderWidth = 4;
     const bottomMargin = 150;
+    const text = this.escapeTextForFFmpeg("SUBSCRIBE :)");
 
     return (
-      `drawtext=text='SUBSCRIBE \\\\:)':` +
+      `drawtext=text='${text}':` +
       `fontfile='C\\:/Windows/Fonts/impact.ttf':` +
       `fontsize=${fontSize}:` +
       `fontcolor=red:` +
@@ -366,6 +382,47 @@ export class ClipService {
       `x=(w-text_w)/2:` +
       `y=h-${bottomMargin}`
     );
+  }
+
+  /**
+   * Build FFmpeg drawtext filters for subtitle overlays
+   * Style: White text with black outline, positioned at bottom center, timed to audio
+   */
+  private buildSubtitleFilters(chunks: SubtitleChunk[]): string[] {
+    const filters: string[] = [];
+
+    // Font settings for subtitles - slightly smaller than title, positioned at bottom
+    const fontSize = 54;
+    const borderWidth = 4;
+    const bottomMargin = 280; // Above the subscribe text
+
+    logger.info("Building subtitle filters", {
+      chunkCount: chunks.length,
+    });
+
+    chunks.forEach((chunk, index) => {
+      const escapedText = this.escapeTextForFFmpeg(chunk.text);
+
+      // Create drawtext filter with time-based enable
+      // Show this text only between chunk.start and chunk.end
+      filters.push(
+        `drawtext=text='${escapedText}':` +
+          `fontfile='C\\:/Windows/Fonts/impact.ttf':` +
+          `fontsize=${fontSize}:` +
+          `fontcolor=white:` +
+          `borderw=${borderWidth}:` +
+          `bordercolor=black:` +
+          `x=(w-text_w)/2:` +
+          `y=h-${bottomMargin}:` +
+          `enable='between(t,${chunk.start.toFixed(2)},${chunk.end.toFixed(2)})'`
+      );
+    });
+
+    logger.info("Subtitle filters built", {
+      filterCount: filters.length,
+    });
+
+    return filters;
   }
 
   /**
@@ -449,6 +506,83 @@ export class ClipService {
     await fs.rename(tempPath, clipPath);
 
     logger.info("Title added to clip successfully", { clipPath, title });
+  }
+
+  /**
+   * Add subtitles to an existing clip
+   * Re-encodes the clip with subtitle overlays burned in
+   */
+  async addSubtitlesToClip(
+    clipPath: string,
+    subtitleChunks: SubtitleChunk[],
+    onProgress?: (percent: number) => void
+  ): Promise<void> {
+    const qualityPreset = VIDEO_CONFIG.qualityPresets["medium"];
+    const tempPath = clipPath.replace(".mp4", "_subtitled.mp4");
+
+    logger.info("Adding subtitles to clip", {
+      clipPath,
+      chunkCount: subtitleChunks.length,
+    });
+
+    // Get clip duration for progress tracking
+    const metadata = await new Promise<number>((resolve, reject) => {
+      ffmpeg.ffprobe(clipPath, (err, data) => {
+        if (err) reject(err);
+        else resolve(data.format.duration || 30);
+      });
+    });
+
+    // Build subtitle filters
+    const subtitleFilters = this.buildSubtitleFilters(subtitleChunks);
+    const filterComplex = subtitleFilters.join(",");
+
+    // Re-encode with subtitles
+    await new Promise<void>((resolve, reject) => {
+      let command = ffmpeg(clipPath)
+        .videoCodec("libx264")
+        .videoBitrate(qualityPreset.videoBitrate)
+        .fps(VIDEO_CONFIG.defaults.fps)
+        .audioCodec("aac")
+        .audioBitrate(qualityPreset.audioBitrate)
+        .outputOptions([
+          `-preset ${qualityPreset.preset}`,
+          "-threads 0",
+          "-tune fastdecode",
+          "-movflags +faststart",
+        ])
+        .videoFilters(filterComplex)
+        .output(tempPath);
+
+      if (onProgress) {
+        command = command.on(
+          "progress",
+          createProgressHandler(metadata, onProgress)
+        );
+      }
+
+      command
+        .on("end", () => resolve())
+        .on("error", (err, stdout, stderr) => {
+          logger.error("FFmpeg subtitle overlay error", {
+            error: err.message,
+            stdout,
+            stderr,
+          });
+          reject(err);
+        })
+        .run();
+    });
+
+    // Replace original with new version
+    const fs = await import("fs/promises");
+    await fs.unlink(clipPath);
+    await fs.rename(tempPath, clipPath);
+
+    logger.info("Subtitles added to clip successfully", {
+      clipPath,
+      chunkCount: subtitleChunks.length,
+    });
   }
 }
 

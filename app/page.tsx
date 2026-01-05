@@ -19,11 +19,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 
 export default function Home() {
   const router = useRouter();
   const [videoUrl, setVideoUrl] = useState("");
   const [maxClips, setMaxClips] = useState("5");
+  const [includeSubtitles, setIncludeSubtitles] = useState(false);
+  const [showSubscribe, setShowSubscribe] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -42,6 +45,8 @@ export default function Home() {
           videoUrl,
           options: {
             maxClips: parseInt(maxClips, 10),
+            includeSubtitles,
+            showSubscribe,
           },
         }),
       });
@@ -116,6 +121,40 @@ export default function Home() {
                   <SelectItem value="10">10 clips</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="flex items-center space-x-3">
+              <Checkbox
+                id="include-subtitles"
+                checked={includeSubtitles}
+                onCheckedChange={(checked) =>
+                  setIncludeSubtitles(checked === true)
+                }
+                disabled={isLoading}
+              />
+              <Label
+                htmlFor="include-subtitles"
+                className="text-sm font-medium cursor-pointer"
+              >
+                Include subtitles (synced captions burned into video)
+              </Label>
+            </div>
+
+            <div className="flex items-center space-x-3">
+              <Checkbox
+                id="show-subscribe"
+                checked={showSubscribe}
+                onCheckedChange={(checked) =>
+                  setShowSubscribe(checked === true)
+                }
+                disabled={isLoading}
+              />
+              <Label
+                htmlFor="show-subscribe"
+                className="text-sm font-medium cursor-pointer"
+              >
+                Show "SUBSCRIBE :)" overlay at bottom
+              </Label>
             </div>
 
             <Button type="submit" disabled={isLoading} className="w-full">

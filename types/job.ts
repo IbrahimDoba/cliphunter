@@ -19,6 +19,7 @@ export interface JobOptions {
   clipDuration?: number;
   maxClips?: number;
   includeSubtitles?: boolean;
+  showSubscribe?: boolean;
 }
 
 export interface Job {
