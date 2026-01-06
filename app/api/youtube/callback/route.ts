@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@/lib/auth';
 import { youtubeUploadService } from '@/lib/services/youtube-upload.service';
 
 /**
@@ -7,6 +8,15 @@ import { youtubeUploadService } from '@/lib/services/youtube-upload.service';
  */
 export async function GET(request: NextRequest) {
   try {
+    // Check authentication
+    const session = await auth();
+
+    if (!session?.user?.id) {
+      return NextResponse.redirect(
+        new URL('/auth/signin?error=Please sign in first', request.url)
+      );
+    }
+
     const searchParams = request.nextUrl.searchParams;
     const code = searchParams.get('code');
     const error = searchParams.get('error');
@@ -26,8 +36,8 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Exchange code for tokens and save account
-    const account = await youtubeUploadService.handleCallback(code);
+    // Exchange code for tokens and save account (linked to user)
+    const account = await youtubeUploadService.handleCallback(code, session.user.id);
 
     // Redirect to success page (will be handled by frontend)
     return NextResponse.redirect(

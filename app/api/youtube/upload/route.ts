@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import * as path from 'path';
+import { auth } from '@/lib/auth';
 import { youtubeUploadService } from '@/lib/services/youtube-upload.service';
 import { YouTubeUploadRequest, YouTubeUploadResponse } from '@/types/youtube';
 
@@ -18,6 +19,21 @@ const uploadSchema = z.object({
  */
 export async function POST(request: NextRequest) {
   try {
+    // Check authentication
+    const session = await auth();
+
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        {
+          error: {
+            message: 'Unauthorized',
+            code: 'UNAUTHORIZED',
+          },
+        },
+        { status: 401 }
+      );
+    }
+
     const body = await request.json();
 
     // Validate request
@@ -48,12 +64,16 @@ export async function POST(request: NextRequest) {
       absolutePath = path.join(process.cwd(), clipPath);
     }
 
-    // Upload to YouTube
-    const result = await youtubeUploadService.uploadVideo(absolutePath, {
-      title,
-      description,
-      privacy,
-    });
+    // Upload to YouTube (with userId)
+    const result = await youtubeUploadService.uploadVideo(
+      session.user.id,
+      absolutePath,
+      {
+        title,
+        description,
+        privacy,
+      }
+    );
 
     const response: YouTubeUploadResponse = {
       videoId: result.videoId,

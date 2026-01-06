@@ -1,8 +1,7 @@
-import { v4 as uuidv4 } from 'uuid';
-import { db } from '../db/client';
+import { prisma } from '../db/prisma';
+import { JobStatus as PrismaJobStatus, Prisma } from '@prisma/client';
 import {
   Job,
-  JobRecord,
   JobProgress,
   JobResult,
   JobError,
@@ -11,67 +10,109 @@ import {
 import { JOB_STATUS, PROCESSING_STEPS } from '@/config/constants';
 import { logger } from '../utils/logger';
 
+// Helper to convert objects to Prisma JSON input
+function toJson<T>(obj: T): Prisma.InputJsonValue {
+  return JSON.parse(JSON.stringify(obj));
+}
+
+// Map between our string statuses and Prisma enum
+const statusToPrisma: Record<string, PrismaJobStatus> = {
+  [JOB_STATUS.QUEUED]: 'QUEUED',
+  [JOB_STATUS.PROCESSING]: 'PROCESSING',
+  [JOB_STATUS.COMPLETED]: 'COMPLETED',
+  [JOB_STATUS.FAILED]: 'FAILED',
+  [JOB_STATUS.CANCELLED]: 'CANCELLED',
+};
+
+const prismaToStatus: Record<PrismaJobStatus, string> = {
+  QUEUED: JOB_STATUS.QUEUED,
+  PROCESSING: JOB_STATUS.PROCESSING,
+  COMPLETED: JOB_STATUS.COMPLETED,
+  FAILED: JOB_STATUS.FAILED,
+  CANCELLED: JOB_STATUS.CANCELLED,
+};
+
 export class JobService {
   /**
    * Create a new job
    */
-  async createJob(videoUrl: string, options: JobOptions = {}): Promise<Job> {
-    const jobId = uuidv4();
-    const now = Date.now();
-
-    const job: Job = {
-      id: jobId,
-      videoUrl,
-      status: JOB_STATUS.QUEUED,
-      progress: {
-        step: PROCESSING_STEPS.DOWNLOADING,
-        percentage: 0,
-        message: 'Job queued',
-      },
-      options: {
-        clipDuration: options.clipDuration,
-        maxClips: options.maxClips || 5,
-        includeSubtitles: options.includeSubtitles ?? true,
-      },
-      createdAt: new Date(now),
-      updatedAt: new Date(now),
+  async createJob(
+    userId: string,
+    videoUrl: string,
+    options: JobOptions = {}
+  ): Promise<Job> {
+    const progress: JobProgress = {
+      step: PROCESSING_STEPS.DOWNLOADING,
+      percentage: 0,
+      message: 'Job queued',
     };
 
-    // Insert into database
-    const stmt = db.prepare(`
-      INSERT INTO jobs (id, video_url, status, progress, result, error, options, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
+    const jobOptions = {
+      clipDuration: options.clipDuration,
+      maxClips: options.maxClips || 5,
+      includeSubtitles: options.includeSubtitles ?? true,
+      showSubscribe: options.showSubscribe ?? false,
+    };
 
-    stmt.run(
-      job.id,
-      job.videoUrl,
-      job.status,
-      JSON.stringify(job.progress),
-      null,
-      null,
-      JSON.stringify(job.options),
-      now,
-      now
-    );
+    const job = await prisma.job.create({
+      data: {
+        userId,
+        videoUrl,
+        status: 'QUEUED',
+        progress: toJson(progress),
+        options: toJson(jobOptions),
+      },
+    });
 
-    logger.info('Job created', { jobId, videoUrl });
+    logger.info('Job created', { jobId: job.id, userId, videoUrl });
 
-    return job;
+    return this.prismaToJob(job);
   }
 
   /**
    * Get job by ID
    */
   async getJob(jobId: string): Promise<Job | null> {
-    const stmt = db.prepare('SELECT * FROM jobs WHERE id = ?');
-    const record = stmt.get(jobId) as JobRecord | undefined;
+    const job = await prisma.job.findUnique({
+      where: { id: jobId },
+    });
 
-    if (!record) {
+    if (!job) {
       return null;
     }
 
-    return this.recordToJob(record);
+    return this.prismaToJob(job);
+  }
+
+  /**
+   * Get job by ID for a specific user (authorization check)
+   */
+  async getJobForUser(jobId: string, userId: string): Promise<Job | null> {
+    const job = await prisma.job.findFirst({
+      where: {
+        id: jobId,
+        userId,
+      },
+    });
+
+    if (!job) {
+      return null;
+    }
+
+    return this.prismaToJob(job);
+  }
+
+  /**
+   * Get all jobs for a user
+   */
+  async getJobsForUser(userId: string, limit: number = 100): Promise<Job[]> {
+    const jobs = await prisma.job.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
+
+    return jobs.map((job) => this.prismaToJob(job));
   }
 
   /**
@@ -82,24 +123,18 @@ export class JobService {
     status: Job['status'],
     progress?: JobProgress
   ): Promise<void> {
-    const now = Date.now();
-    const updates: string[] = ['status = ?', 'updated_at = ?'];
-    const values: any[] = [status, now];
+    const updateData: Prisma.JobUpdateInput = {
+      status: statusToPrisma[status],
+    };
 
     if (progress) {
-      updates.push('progress = ?');
-      values.push(JSON.stringify(progress));
+      updateData.progress = toJson(progress);
     }
 
-    values.push(jobId);
-
-    const stmt = db.prepare(`
-      UPDATE jobs
-      SET ${updates.join(', ')}
-      WHERE id = ?
-    `);
-
-    stmt.run(...values);
+    await prisma.job.update({
+      where: { id: jobId },
+      data: updateData,
+    });
 
     logger.debug('Job status updated', { jobId, status, progress });
   }
@@ -108,13 +143,10 @@ export class JobService {
    * Update job progress
    */
   async updateJobProgress(jobId: string, progress: JobProgress): Promise<void> {
-    const stmt = db.prepare(`
-      UPDATE jobs
-      SET progress = ?, updated_at = ?
-      WHERE id = ?
-    `);
-
-    stmt.run(JSON.stringify(progress), Date.now(), jobId);
+    await prisma.job.update({
+      where: { id: jobId },
+      data: { progress: toJson(progress) },
+    });
 
     logger.debug('Job progress updated', { jobId, progress });
   }
@@ -123,25 +155,20 @@ export class JobService {
    * Complete job with result
    */
   async completeJob(jobId: string, result: JobResult): Promise<void> {
-    const stmt = db.prepare(`
-      UPDATE jobs
-      SET status = ?, result = ?, progress = ?, updated_at = ?
-      WHERE id = ?
-    `);
-
     const progress: JobProgress = {
       step: PROCESSING_STEPS.DONE,
       percentage: 100,
       message: 'Clips generated successfully',
     };
 
-    stmt.run(
-      JOB_STATUS.COMPLETED,
-      JSON.stringify(result),
-      JSON.stringify(progress),
-      Date.now(),
-      jobId
-    );
+    await prisma.job.update({
+      where: { id: jobId },
+      data: {
+        status: 'COMPLETED',
+        result: toJson(result),
+        progress: toJson(progress),
+      },
+    });
 
     logger.info('Job completed', { jobId, clipCount: result.clips.length });
   }
@@ -150,25 +177,20 @@ export class JobService {
    * Fail job with error
    */
   async failJob(jobId: string, error: JobError): Promise<void> {
-    const stmt = db.prepare(`
-      UPDATE jobs
-      SET status = ?, error = ?, progress = ?, updated_at = ?
-      WHERE id = ?
-    `);
-
     const progress: JobProgress = {
       step: PROCESSING_STEPS.ERROR,
       percentage: 0,
       message: error.message,
     };
 
-    stmt.run(
-      JOB_STATUS.FAILED,
-      JSON.stringify(error),
-      JSON.stringify(progress),
-      Date.now(),
-      jobId
-    );
+    await prisma.job.update({
+      where: { id: jobId },
+      data: {
+        status: 'FAILED',
+        error: toJson(error),
+        progress: toJson(progress),
+      },
+    });
 
     logger.error('Job failed', { jobId, error });
   }
@@ -176,7 +198,11 @@ export class JobService {
   /**
    * Update a specific clip's title in the job result
    */
-  async updateClipTitle(jobId: string, clipId: string, newTitle: string): Promise<boolean> {
+  async updateClipTitle(
+    jobId: string,
+    clipId: string,
+    newTitle: string
+  ): Promise<boolean> {
     const job = await this.getJob(jobId);
 
     if (!job || !job.result) {
@@ -190,13 +216,10 @@ export class JobService {
 
     job.result.clips[clipIndex].title = newTitle;
 
-    const stmt = db.prepare(`
-      UPDATE jobs
-      SET result = ?, updated_at = ?
-      WHERE id = ?
-    `);
-
-    stmt.run(JSON.stringify(job.result), Date.now(), jobId);
+    await prisma.job.update({
+      where: { id: jobId },
+      data: { result: toJson(job.result) },
+    });
 
     logger.info('Clip title updated', { jobId, clipId, newTitle });
 
@@ -213,17 +236,17 @@ export class JobService {
       return false;
     }
 
-    if (job.status === JOB_STATUS.COMPLETED || job.status === JOB_STATUS.FAILED) {
+    if (
+      job.status === JOB_STATUS.COMPLETED ||
+      job.status === JOB_STATUS.FAILED
+    ) {
       return false;
     }
 
-    const stmt = db.prepare(`
-      UPDATE jobs
-      SET status = ?, updated_at = ?
-      WHERE id = ?
-    `);
-
-    stmt.run(JOB_STATUS.CANCELLED, Date.now(), jobId);
+    await prisma.job.update({
+      where: { id: jobId },
+      data: { status: 'CANCELLED' },
+    });
 
     logger.info('Job cancelled', { jobId });
 
@@ -234,50 +257,45 @@ export class JobService {
    * Get next queued job
    */
   async getNextQueuedJob(): Promise<Job | null> {
-    const stmt = db.prepare(`
-      SELECT * FROM jobs
-      WHERE status = ?
-      ORDER BY created_at ASC
-      LIMIT 1
-    `);
+    const job = await prisma.job.findFirst({
+      where: { status: 'QUEUED' },
+      orderBy: { createdAt: 'asc' },
+    });
 
-    const record = stmt.get(JOB_STATUS.QUEUED) as JobRecord | undefined;
-
-    if (!record) {
+    if (!job) {
       return null;
     }
 
-    return this.recordToJob(record);
+    return this.prismaToJob(job);
   }
 
   /**
    * Get all jobs (for admin/debugging)
    */
   async getAllJobs(limit: number = 100): Promise<Job[]> {
-    const stmt = db.prepare(`
-      SELECT * FROM jobs
-      ORDER BY created_at DESC
-      LIMIT ?
-    `);
+    const jobs = await prisma.job.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
 
-    const records = stmt.all(limit) as JobRecord[];
-    return records.map((record) => this.recordToJob(record));
+    return jobs.map((job) => this.prismaToJob(job));
   }
 
   /**
-   * Convert database record to Job object
+   * Convert Prisma job to our Job interface
    */
-  private recordToJob(record: JobRecord): Job {
+  private prismaToJob(job: any): Job {
     return {
-      id: record.id,
-      videoUrl: record.video_url,
-      status: record.status,
-      progress: JSON.parse(record.progress),
-      result: record.result ? JSON.parse(record.result) : undefined,
-      error: record.error ? JSON.parse(record.error) : undefined,
-      options: JSON.parse(record.options),
-      createdAt: new Date(record.created_at),
-      updatedAt: new Date(record.updated_at),
+      id: job.id,
+      userId: job.userId,
+      videoUrl: job.videoUrl,
+      status: prismaToStatus[job.status as PrismaJobStatus],
+      progress: job.progress as JobProgress,
+      result: job.result as JobResult | undefined,
+      error: job.error as JobError | undefined,
+      options: job.options as JobOptions,
+      createdAt: job.createdAt,
+      updatedAt: job.updatedAt,
     };
   }
 }

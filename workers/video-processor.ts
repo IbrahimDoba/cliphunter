@@ -1,6 +1,7 @@
 import * as path from "path";
 import { queue } from "../lib/queue/queue";
 import { jobService } from "../lib/services/job.service";
+import { usageService } from "../lib/services/usage.service";
 import { youtubeService } from "../lib/services/youtube.service";
 import { videoService } from "../lib/services/video.service";
 import { subtitleService } from "../lib/services/subtitle.service";
@@ -385,6 +386,13 @@ class VideoProcessor {
       clips: finalClips,
     });
 
+    // Record usage only on successful completion
+    await usageService.recordUsage(job.userId, finalClips.length);
+    logger.info("Usage recorded for successful job", {
+      userId: job.userId,
+      clipsGenerated: finalClips.length,
+    });
+
     // Cleanup
     await youtubeService.cleanup(videoPath);
     await queue.complete(job.id);
@@ -581,6 +589,13 @@ class VideoProcessor {
 
     // Complete job
     await jobService.completeJob(job.id, result);
+
+    // Record usage only on successful completion
+    await usageService.recordUsage(job.userId, clips.length);
+    logger.info("Usage recorded for successful job", {
+      userId: job.userId,
+      clipsGenerated: clips.length,
+    });
 
     // Cleanup downloaded video
     await youtubeService.cleanup(videoInfo.videoPath);

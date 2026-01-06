@@ -8,9 +8,9 @@ export class SimpleQueue {
   /**
    * Enqueue a job (handled by database insertion in jobService)
    */
-  async enqueue(videoUrl: string, options: Job['options'] = {}): Promise<Job> {
-    const job = await jobService.createJob(videoUrl, options);
-    logger.info('Job enqueued', { jobId: job.id });
+  async enqueue(userId: string, videoUrl: string, options: Job['options'] = {}): Promise<Job> {
+    const job = await jobService.createJob(userId, videoUrl, options);
+    logger.info('Job enqueued', { jobId: job.id, userId });
     return job;
   }
 

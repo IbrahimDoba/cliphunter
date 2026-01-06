@@ -24,6 +24,7 @@ export interface JobOptions {
 
 export interface Job {
   id: string;
+  userId: string;
   videoUrl: string;
   status: JobStatus;
   progress: JobProgress;

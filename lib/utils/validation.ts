@@ -61,9 +61,18 @@ export function sanitizeFilename(filename: string): string {
 }
 
 /**
- * Validate job ID format (UUID)
+ * Validate job ID format (CUID or UUID)
+ * CUID: starts with 'c', ~25 chars alphanumeric (e.g., cly1234567890abcdefgh)
+ * UUID: 36 chars with dashes (e.g., 550e8400-e29b-41d4-a716-446655440000)
  */
 export function isValidJobId(id: string): boolean {
+  if (!id || typeof id !== 'string') return false;
+
+  // CUID pattern (Prisma default)
+  const cuidPattern = /^c[a-z0-9]{20,30}$/i;
+
+  // UUID pattern (fallback)
   const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  return uuidPattern.test(id);
+
+  return cuidPattern.test(id) || uuidPattern.test(id);
 }

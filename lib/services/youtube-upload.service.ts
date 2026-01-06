@@ -1,15 +1,14 @@
 import { google, Auth } from 'googleapis';
-import { v4 as uuidv4 } from 'uuid';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { db } from '../db/client';
+import { v4 as uuidv4 } from 'uuid';
+import { prisma } from '../db/prisma';
 import { env } from '@/config/env';
 import { logger } from '../utils/logger';
 import { generateThumbnail } from '../utils/ffmpeg';
 import {
   YouTubeAccount,
-  YouTubeAccountRecord,
   YouTubeUploadOptions,
   YouTubeUploadProgress,
   YouTubeUploadResult,
@@ -61,7 +60,7 @@ export class YouTubeUploadService {
   /**
    * Handle OAuth callback - exchange code for tokens and save account
    */
-  async handleCallback(code: string): Promise<YouTubeAccount> {
+  async handleCallback(code: string, userId: string): Promise<YouTubeAccount> {
     const oauth2Client = this.getOAuth2Client();
 
     // Exchange code for tokens
@@ -93,91 +92,63 @@ export class YouTubeUploadService {
       throw new Error('No YouTube channel found for this account');
     }
 
-    // Check if account already exists
-    const existingAccount = await this.getAccountByEmail(userInfo.email);
-    const accountId = existingAccount?.id || uuidv4();
-    const now = Date.now();
+    const tokenExpiry = tokens.expiry_date
+      ? new Date(tokens.expiry_date)
+      : new Date(Date.now() + 3600000); // Default 1 hour
 
-    const account: YouTubeAccount = {
-      id: accountId,
-      email: userInfo.email,
-      channelId: channel.id,
-      channelTitle: channel.snippet?.title || undefined,
-      accessToken: tokens.access_token,
-      refreshToken: tokens.refresh_token,
-      tokenExpiry: tokens.expiry_date || now + 3600000, // Default 1 hour if not provided
-      createdAt: existingAccount?.createdAt || new Date(now),
-    };
+    // Upsert YouTube account for this user
+    const account = await prisma.youTubeAccount.upsert({
+      where: { userId },
+      update: {
+        email: userInfo.email,
+        channelId: channel.id,
+        channelTitle: channel.snippet?.title || null,
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token,
+        tokenExpiry,
+      },
+      create: {
+        userId,
+        email: userInfo.email,
+        channelId: channel.id,
+        channelTitle: channel.snippet?.title || null,
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token,
+        tokenExpiry,
+      },
+    });
 
-    // Upsert account to database
-    if (existingAccount) {
-      const stmt = db.prepare(`
-        UPDATE youtube_accounts
-        SET access_token = ?, refresh_token = ?, token_expiry = ?, channel_title = ?
-        WHERE id = ?
-      `);
-      stmt.run(account.accessToken, account.refreshToken, account.tokenExpiry, account.channelTitle || null, account.id);
-    } else {
-      const stmt = db.prepare(`
-        INSERT INTO youtube_accounts (id, email, channel_id, channel_title, access_token, refresh_token, token_expiry, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      stmt.run(
-        account.id,
-        account.email,
-        account.channelId,
-        account.channelTitle || null,
-        account.accessToken,
-        account.refreshToken,
-        account.tokenExpiry,
-        now
-      );
-    }
+    logger.info('YouTube account connected', { userId, email: account.email, channelId: account.channelId });
 
-    logger.info('YouTube account connected', { email: account.email, channelId: account.channelId });
-
-    return account;
+    return this.prismaToAccount(account);
   }
 
   /**
-   * Get connected YouTube account (returns first/only account for MVP)
+   * Get connected YouTube account for a user
    */
-  async getConnectedAccount(): Promise<YouTubeAccount | null> {
-    const stmt = db.prepare('SELECT * FROM youtube_accounts LIMIT 1');
-    const record = stmt.get() as YouTubeAccountRecord | undefined;
+  async getConnectedAccount(userId: string): Promise<YouTubeAccount | null> {
+    const account = await prisma.youTubeAccount.findUnique({
+      where: { userId },
+    });
 
-    if (!record) {
+    if (!account) {
       return null;
     }
 
-    return this.recordToAccount(record);
-  }
-
-  /**
-   * Get account by email
-   */
-  async getAccountByEmail(email: string): Promise<YouTubeAccount | null> {
-    const stmt = db.prepare('SELECT * FROM youtube_accounts WHERE email = ?');
-    const record = stmt.get(email) as YouTubeAccountRecord | undefined;
-
-    if (!record) {
-      return null;
-    }
-
-    return this.recordToAccount(record);
+    return this.prismaToAccount(account);
   }
 
   /**
    * Refresh access token if expired
    */
-  private async refreshTokenIfNeeded(account: YouTubeAccount): Promise<YouTubeAccount> {
+  private async refreshTokenIfNeeded(account: YouTubeAccount, userId: string): Promise<YouTubeAccount> {
     // Check if token expires in the next 5 minutes
     const bufferTime = 5 * 60 * 1000; // 5 minutes
     if (account.tokenExpiry > Date.now() + bufferTime) {
       return account; // Token still valid
     }
 
-    logger.info('Refreshing YouTube access token', { email: account.email });
+    logger.info('Refreshing YouTube access token', { userId, email: account.email });
 
     const oauth2Client = this.getOAuth2Client();
     oauth2Client.setCredentials({
@@ -190,18 +161,23 @@ export class YouTubeUploadService {
       throw new Error('Failed to refresh access token');
     }
 
+    const newExpiry = credentials.expiry_date
+      ? new Date(credentials.expiry_date)
+      : new Date(Date.now() + 3600000);
+
     // Update account in database
-    const stmt = db.prepare(`
-      UPDATE youtube_accounts
-      SET access_token = ?, token_expiry = ?
-      WHERE id = ?
-    `);
-    stmt.run(credentials.access_token, credentials.expiry_date || Date.now() + 3600000, account.id);
+    await prisma.youTubeAccount.update({
+      where: { userId },
+      data: {
+        accessToken: credentials.access_token,
+        tokenExpiry: newExpiry,
+      },
+    });
 
     return {
       ...account,
       accessToken: credentials.access_token,
-      tokenExpiry: credentials.expiry_date || Date.now() + 3600000,
+      tokenExpiry: newExpiry.getTime(),
     };
   }
 
@@ -210,18 +186,19 @@ export class YouTubeUploadService {
    * Automatically extracts a thumbnail at 2 seconds and uploads it
    */
   async uploadVideo(
+    userId: string,
     clipPath: string,
     options: YouTubeUploadOptions,
     onProgress?: (progress: YouTubeUploadProgress) => void
   ): Promise<YouTubeUploadResult> {
-    // Get connected account
-    let account = await this.getConnectedAccount();
+    // Get connected account for this user
+    let account = await this.getConnectedAccount(userId);
     if (!account) {
       throw new Error('No YouTube account connected. Please connect your account first.');
     }
 
     // Refresh token if needed
-    account = await this.refreshTokenIfNeeded(account);
+    account = await this.refreshTokenIfNeeded(account, userId);
 
     // Verify file exists
     if (!fs.existsSync(clipPath)) {
@@ -240,6 +217,7 @@ export class YouTubeUploadService {
     const youtube = google.youtube({ version: 'v3', auth: oauth2Client });
 
     logger.info('Starting YouTube upload', {
+      userId,
       title: options.title,
       privacy: options.privacy,
       fileSize,
@@ -325,7 +303,7 @@ export class YouTubeUploadService {
       title: options.title,
     };
 
-    logger.info('YouTube upload completed', result);
+    logger.info('YouTube upload completed', { userId, ...result });
 
     return result;
   }
@@ -351,27 +329,31 @@ export class YouTubeUploadService {
   }
 
   /**
-   * Disconnect YouTube account
+   * Disconnect YouTube account for a user
    */
-  async disconnectAccount(): Promise<void> {
-    const stmt = db.prepare('DELETE FROM youtube_accounts');
-    stmt.run();
-    logger.info('YouTube account disconnected');
+  async disconnectAccount(userId: string): Promise<void> {
+    await prisma.youTubeAccount.delete({
+      where: { userId },
+    }).catch(() => {
+      // Ignore if account doesn't exist
+    });
+
+    logger.info('YouTube account disconnected', { userId });
   }
 
   /**
-   * Convert database record to YouTubeAccount object
+   * Convert Prisma record to YouTubeAccount object
    */
-  private recordToAccount(record: YouTubeAccountRecord): YouTubeAccount {
+  private prismaToAccount(record: any): YouTubeAccount {
     return {
       id: record.id,
       email: record.email,
-      channelId: record.channel_id,
-      channelTitle: record.channel_title || undefined,
-      accessToken: record.access_token,
-      refreshToken: record.refresh_token,
-      tokenExpiry: record.token_expiry,
-      createdAt: new Date(record.created_at),
+      channelId: record.channelId,
+      channelTitle: record.channelTitle || undefined,
+      accessToken: record.accessToken,
+      refreshToken: record.refreshToken,
+      tokenExpiry: record.tokenExpiry.getTime(),
+      createdAt: record.createdAt,
     };
   }
 }

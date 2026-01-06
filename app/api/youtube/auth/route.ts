@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { auth } from '@/lib/auth';
 import { youtubeUploadService } from '@/lib/services/youtube-upload.service';
 import { YouTubeAuthUrlResponse, YouTubeAccountResponse } from '@/types/youtube';
 
@@ -9,6 +10,21 @@ import { YouTubeAuthUrlResponse, YouTubeAccountResponse } from '@/types/youtube'
  */
 export async function GET() {
   try {
+    // Check authentication
+    const session = await auth();
+
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        {
+          error: {
+            message: 'Unauthorized',
+            code: 'UNAUTHORIZED',
+          },
+        },
+        { status: 401 }
+      );
+    }
+
     // Check if Google credentials are configured
     if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
       return NextResponse.json(
@@ -22,8 +38,8 @@ export async function GET() {
       );
     }
 
-    // Check if already connected
-    const account = await youtubeUploadService.getConnectedAccount();
+    // Check if already connected for this user
+    const account = await youtubeUploadService.getConnectedAccount(session.user.id);
 
     if (account) {
       const response: YouTubeAccountResponse = {
@@ -62,7 +78,22 @@ export async function GET() {
  */
 export async function DELETE() {
   try {
-    await youtubeUploadService.disconnectAccount();
+    // Check authentication
+    const session = await auth();
+
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        {
+          error: {
+            message: 'Unauthorized',
+            code: 'UNAUTHORIZED',
+          },
+        },
+        { status: 401 }
+      );
+    }
+
+    await youtubeUploadService.disconnectAccount(session.user.id);
 
     return NextResponse.json({ success: true });
   } catch (error: any) {

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@/lib/auth';
 import { jobService } from '@/lib/services/job.service';
 import { GetJobStatusResponse } from '@/types/api';
 import { isValidJobId } from '@/lib/utils/validation';
@@ -9,6 +10,21 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Check authentication
+    const session = await auth();
+
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        {
+          error: {
+            message: 'Unauthorized',
+            code: 'UNAUTHORIZED',
+          },
+        },
+        { status: 401 }
+      );
+    }
+
     const { id: jobId } = await params;
 
     // Validate job ID format
@@ -24,8 +40,8 @@ export async function GET(
       );
     }
 
-    // Get job
-    const job = await jobService.getJob(jobId);
+    // Get job for this user (authorization check)
+    const job = await jobService.getJobForUser(jobId, session.user.id);
 
     if (!job) {
       return NextResponse.json(
