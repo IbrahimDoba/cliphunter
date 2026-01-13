@@ -6,7 +6,30 @@
       "Bash(npx tsc:*)",
       "Bash(pnpm --version:*)",
       "Bash(pnpm install:*)",
-      "Bash(pnpm exec tsc:*)"
+      "Bash(pnpm exec tsc:*)",
+      "Bash(npm install:*)",
+      "Bash(pnpm run build:*)",
+      "Bash(pnpm add:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd YouTube upload, AI titles, and video title overlay features\n\n- YouTube OAuth integration for uploading clips directly to YouTube\n- AI-powered auto-generation of titles, descriptions, and tags using OpenAI\n- Title overlay on video clips with Impact font and fade-out effect\n- Edit and regenerate clip titles with new overlay\n- Real-time video download progress display\n- Support for multi-line title text wrapping\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git push)",
+      "Bash(grep:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd batch title editing and batch YouTube upload features\n\n- Add batch title editor component for editing multiple clip titles at once\n- Add batch YouTube upload component for uploading multiple clips\n- Add new UI components \\(label, select\\) for improved forms\n- Update clip and video services with batch operation support\n- Improve YouTube upload modal and button components\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(tasklist:*)",
+      "Bash(findstr:*)",
+      "WebSearch",
+      "Bash(npm ls:*)",
+      "Bash(pnpm exec node:*)",
+      "Bash(timeout:*)",
+      "Bash(curl:*)",
+      "WebFetch(domain:www.npmjs.com)",
+      "WebFetch(domain:ai.google.dev)",
+      "WebFetch(domain:github.com)",
+      "Bash(yt-dlp:*)",
+      "Bash(node --version:*)",
+      "Bash(npx prisma:*)",
+      "Bash(ls:*)",
+      "Bash(find:*)"
     ]
   }
 }
