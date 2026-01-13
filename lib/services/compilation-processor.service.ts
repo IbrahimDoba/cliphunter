@@ -8,9 +8,7 @@ import {
   ClipAnalysis,
   SelectedClip,
   CompilationScript,
-  NarrationSegment,
   VoiceoverFile,
-  NARRATION_STYLE,
   NarrationStyle,
   SubtitleStyle,
   ClipAudioMode,
@@ -18,7 +16,7 @@ import {
 import { ClipInfo } from '@/types/job';
 import * as path from 'path';
 import * as fs from 'fs';
-import { ffmpeg, formatTime, createProgressHandler, generateThumbnail } from '../utils/ffmpeg';
+import { ffmpeg, formatTime, generateThumbnail } from '../utils/ffmpeg';
 import { VIDEO_CONFIG } from '@/config/constants';
 
 // Narration style prompts for script generation

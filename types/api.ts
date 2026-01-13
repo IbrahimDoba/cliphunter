@@ -1,5 +1,4 @@
 import { Job, JobOptions } from './job';
-import { ClipInfo } from './job';
 
 // Job Creation API
 export interface CreateJobRequest {

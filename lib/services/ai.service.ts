@@ -1,6 +1,5 @@
 import OpenAI from 'openai';
 import * as fs from 'fs';
-import * as path from 'path';
 import { env } from '@/config/env';
 import { logger } from '../utils/logger';
 

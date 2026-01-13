@@ -15,7 +15,6 @@ import {
   SelectedClip,
   CompilationScript,
   VoiceoverFile,
-  COMPILATION_STATUS,
 } from '@/types/compilation';
 import { logger } from '../utils/logger';
 

@@ -1,4 +1,3 @@
-import * as path from "path";
 import { queue } from "../lib/queue/queue";
 import { jobService } from "../lib/services/job.service";
 import { usageService } from "../lib/services/usage.service";
@@ -8,7 +7,6 @@ import { subtitleService } from "../lib/services/subtitle.service";
 import { clipService } from "../lib/services/clip.service";
 import { aiService } from "../lib/services/ai.service";
 import { geminiService, ClipSuggestion } from "../lib/services/gemini.service";
-import { elevenLabsService } from "../lib/services/elevenlabs.service";
 import { storageService } from "../lib/storage";
 import { env } from "../config/env";
 import { JOB_STATUS, PROCESSING_STEPS } from "../config/constants";

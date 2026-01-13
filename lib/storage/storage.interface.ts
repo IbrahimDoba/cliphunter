@@ -37,4 +37,17 @@ export interface IStorageService {
    * @param key - The storage key/path
    */
   getLocalPath(key: string): string;
+
+  /**
+   * Ensure a directory for a job exists
+   * @param jobId - The job ID
+   * @returns The local path to the job directory
+   */
+  ensureJobDir(jobId: string): Promise<string>;
+
+  /**
+   * Delete all files associated with a job
+   * @param jobId - The job ID
+   */
+  deleteJobFiles(jobId: string): Promise<void>;
 }

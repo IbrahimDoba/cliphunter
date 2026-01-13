@@ -5,7 +5,6 @@ import {
 } from "@google/genai";
 import { env } from "@/config/env";
 import { logger } from "../utils/logger";
-import * as path from "path";
 
 export interface ClipSuggestion {
   start_time: string; // "MM:SS" format

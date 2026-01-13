@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { compilationService } from '@/lib/services/compilation.service';
 import { compilationProcessorService } from '@/lib/services/compilation-processor.service';
@@ -10,7 +10,6 @@ import { logger } from '@/lib/utils/logger';
  * This will analyze all clips from the job, curate them, and generate a script
  */
 export async function POST(
-  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
