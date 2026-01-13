@@ -6,7 +6,7 @@ import { logger } from '@/lib/utils/logger';
 
 export async function POST(
   _request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await auth();
@@ -23,7 +23,7 @@ export async function POST(
       );
     }
 
-    const { id } = params; // ✅ no await
+    const { id } = await params; // ✅ await params
 
     const compilation = await compilationService.getCompilationForUser(
       id,
