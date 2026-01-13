@@ -9,7 +9,7 @@ import { clipService } from "../lib/services/clip.service";
 import { aiService } from "../lib/services/ai.service";
 import { geminiService, ClipSuggestion } from "../lib/services/gemini.service";
 import { elevenLabsService } from "../lib/services/elevenlabs.service";
-import { storageService } from "../lib/storage/local-storage";
+import { storageService } from "../lib/storage";
 import { env } from "../config/env";
 import { JOB_STATUS, PROCESSING_STEPS } from "../config/constants";
 import { logger } from "../lib/utils/logger";

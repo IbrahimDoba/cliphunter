@@ -1,64 +1,57 @@
-"use client"
+"use client";
 
-import { useSession, signOut } from "next-auth/react"
-import { useState, useEffect } from "react"
-import { Button } from "@/components/ui/button"
-import { LogOut, User, ChevronDown, Youtube } from "lucide-react"
-import Link from "next/link"
+import { useSession, signOut } from "next-auth/react";
+import { useState, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { LogOut, User, ChevronDown, Youtube } from "lucide-react";
+import Link from "next/link";
 
 export function UserMenu() {
-  const { data: session, status } = useSession()
-  const [isOpen, setIsOpen] = useState(false)
-  const [youtubeConnected, setYoutubeConnected] = useState(false)
-  const [isDisconnecting, setIsDisconnecting] = useState(false)
+  const { data: session, status } = useSession();
+  const [isOpen, setIsOpen] = useState(false);
+  const [youtubeConnected, setYoutubeConnected] = useState(false);
+  const [isDisconnecting, setIsDisconnecting] = useState(false);
 
   useEffect(() => {
     // Check if YouTube is connected
-    fetch('/api/youtube/auth')
-      .then(res => res.ok ? res.json() : null)
-      .then(data => {
+    fetch("/api/youtube/auth")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
         if (data?.connected) {
-          setYoutubeConnected(true)
+          setYoutubeConnected(true);
         }
       })
-      .catch(() => null)
-  }, [])
+      .catch(() => null);
+  }, []);
 
   const handleDisconnectYouTube = async () => {
-    setIsDisconnecting(true)
+    setIsDisconnecting(true);
     try {
-      const res = await fetch('/api/youtube/auth', { method: 'DELETE' })
+      const res = await fetch("/api/youtube/auth", { method: "DELETE" });
       if (res.ok) {
-        setYoutubeConnected(false)
+        setYoutubeConnected(false);
       }
     } catch (error) {
-      console.error('Failed to disconnect YouTube:', error)
+      console.error("Failed to disconnect YouTube:", error);
     } finally {
-      setIsDisconnecting(false)
+      setIsDisconnecting(false);
     }
-  }
+  };
 
   if (status === "loading") {
-    return (
-      <div className="h-8 w-8 animate-pulse rounded-full bg-zinc-700" />
-    )
+    return <div className="h-8 w-8 animate-pulse rounded-full bg-muted" />;
   }
 
+  // Don't show anything when logged out (Generate Clips button handles CTA)
   if (!session?.user) {
-    return (
-      <Link href="/auth/signin">
-        <Button variant="outline" size="sm" className="border-zinc-700 bg-zinc-800 hover:bg-zinc-700">
-          Sign In
-        </Button>
-      </Link>
-    )
+    return null;
   }
 
   return (
     <div className="relative">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 rounded-lg px-3 py-2 hover:bg-zinc-800 transition-colors"
+        className="flex items-center gap-2 rounded-lg px-3 py-2 hover:bg-muted transition-colors"
       >
         {session.user.image ? (
           <img
@@ -67,14 +60,14 @@ export function UserMenu() {
             className="h-8 w-8 rounded-full"
           />
         ) : (
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-700">
-            <User className="h-4 w-4 text-zinc-400" />
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted">
+            <User className="h-4 w-4 text-muted-foreground" />
           </div>
         )}
-        <span className="hidden md:block text-sm text-zinc-200">
+        <span className="hidden md:block text-sm">
           {session.user.name?.split(" ")[0] || "User"}
         </span>
-        <ChevronDown className="h-4 w-4 text-zinc-400" />
+        <ChevronDown className="h-4 w-4 text-muted-foreground" />
       </button>
 
       {isOpen && (
@@ -83,19 +76,19 @@ export function UserMenu() {
             className="fixed inset-0 z-10"
             onClick={() => setIsOpen(false)}
           />
-          <div className="absolute right-0 top-full z-20 mt-2 w-56 rounded-lg border border-zinc-800 bg-zinc-900 py-2 shadow-xl">
-            <div className="px-4 py-2 border-b border-zinc-800">
-              <p className="text-sm font-medium text-white">
+          <div className="absolute right-0 top-full z-20 mt-2 w-56 rounded-lg border bg-card py-2 shadow-xl">
+            <div className="px-4 py-2 border-b">
+              <p className="text-sm font-medium">
                 {session.user.name}
               </p>
-              <p className="text-xs text-zinc-400 truncate">
+              <p className="text-xs text-muted-foreground truncate">
                 {session.user.email}
               </p>
             </div>
 
             <Link
               href="/profile"
-              className="flex items-center gap-2 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
+              className="flex items-center gap-2 px-4 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
               onClick={() => setIsOpen(false)}
             >
               <User className="h-4 w-4" />
@@ -106,7 +99,7 @@ export function UserMenu() {
               <button
                 onClick={handleDisconnectYouTube}
                 disabled={isDisconnecting}
-                className="flex w-full items-center gap-2 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors disabled:opacity-50"
+                className="flex w-full items-center gap-2 px-4 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50"
               >
                 <Youtube className="h-4 w-4 text-red-500" />
                 {isDisconnecting ? "Disconnecting..." : "Disconnect YouTube"}
@@ -115,7 +108,7 @@ export function UserMenu() {
 
             <button
               onClick={() => signOut({ callbackUrl: "/auth/signin" })}
-              className="flex w-full items-center gap-2 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
+              className="flex w-full items-center gap-2 px-4 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
             >
               <LogOut className="h-4 w-4" />
               Sign Out
@@ -124,5 +117,5 @@ export function UserMenu() {
         </>
       )}
     </div>
-  )
+  );
 }
