@@ -33,6 +33,10 @@ const envSchema = z.object({
   // Google Gemini API for video analysis and clip detection
   GOOGLE_GEMINI_API_KEY: z.string().optional(),
   GEMINI_MODEL: z.string().default('gemini-2.0-flash-exp'),
+
+  // ElevenLabs API for voice-over generation
+  ELEVEN_LABS_API_KEY: z.string().optional(),
+  ELEVEN_LABS_VOICE_ID: z.string().default('21m00Tcm4TlvDq8ikWAM'), // Default: Rachel voice
 });
 
 // Parse and validate environment variables

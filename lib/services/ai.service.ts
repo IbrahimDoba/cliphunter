@@ -64,17 +64,54 @@ export class AIService {
 
   /**
    * Generate engaging title, description, and tags for a YouTube Short
+   * If baseDescription or baseHashtags are provided, AI will expand on them instead of generating from scratch
    */
   async generateMetadata(
     originalTitle: string,
     clipNumber: number,
-    totalClips: number
+    totalClips: number,
+    baseDescription?: string,
+    baseHashtags?: string[]
   ): Promise<GeneratedMetadata> {
     const client = this.getClient();
 
-    logger.info('Generating metadata with AI', { originalTitle, clipNumber });
+    logger.info('Generating metadata with AI', {
+      originalTitle,
+      clipNumber,
+      hasBaseDescription: !!baseDescription,
+      baseHashtagCount: baseHashtags?.length || 0
+    });
 
-    const prompt = `You are a YouTube Shorts expert specializing in gaming and viral content. Generate an engaging title, description, and tags for a short-form vertical video clip.
+    // Build dynamic prompt based on whether user provided base content
+    const hasUserInput = baseDescription || (baseHashtags && baseHashtags.length > 0);
+
+    const prompt = hasUserInput
+      ? `You are a YouTube Shorts expert. Enhance the user's description and hashtags while keeping their core message.
+
+Original video title: "${originalTitle}"
+Clip ${clipNumber} of ${totalClips}
+
+User's description: "${baseDescription || 'None provided'}"
+User's hashtags: ${baseHashtags && baseHashtags.length > 0 ? baseHashtags.join(', ') : 'None provided'}
+
+Requirements:
+- Title: Create a SPECIFIC, action-focused title under 70 characters.
+
+- Description: EXPAND the user's description into 2-3 compelling sentences (max 200 chars).
+  - Keep the user's core message and intent
+  - Add a call-to-action (like, follow, comment)
+  - Make it curiosity-inducing
+  - If no description provided, create an engaging one
+
+- Tags: KEEP ALL user's hashtags + add 3-5 more relevant ones. No # symbol.
+
+Respond in this exact JSON format only, no other text:
+{
+  "title": "Your specific, engaging title here",
+  "description": "Enhanced description here",
+  "tags": ["user_tag1", "user_tag2", "new_tag1", "new_tag2", "new_tag3"]
+}`
+      : `You are a YouTube Shorts expert specializing in gaming and viral content. Generate an engaging title, description, and tags for a short-form vertical video clip.
 
 Original video title: "${originalTitle}"
 Clip ${clipNumber} of ${totalClips}

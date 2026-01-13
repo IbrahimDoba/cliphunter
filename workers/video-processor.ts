@@ -8,6 +8,7 @@ import { subtitleService } from "../lib/services/subtitle.service";
 import { clipService } from "../lib/services/clip.service";
 import { aiService } from "../lib/services/ai.service";
 import { geminiService, ClipSuggestion } from "../lib/services/gemini.service";
+import { elevenLabsService } from "../lib/services/elevenlabs.service";
 import { storageService } from "../lib/storage/local-storage";
 import { env } from "../config/env";
 import { JOB_STATUS, PROCESSING_STEPS } from "../config/constants";
@@ -295,13 +296,20 @@ class VideoProcessor {
       processableScenes = remappedSuggestions;
     }
 
+    // Generate clips WITHOUT titles burned in - titles can be added later via UI
+    // We still pass the suggestions but override titles to empty so clips are clean
+    const cleanScenes = processableScenes.map(scene => ({
+      ...scene,
+      title: '', // Don't burn title into video - user can add via "Edit Title" button
+    }));
+
     const clips = await clipService.generateClipsFromSuggestions(
       sourcePath,
-      processableScenes,
+      cleanScenes,
       jobDir,
       {
         quality: "medium",
-        showSubscribe: job.options.showSubscribe ?? true,
+        showSubscribe: job.options.showSubscribe ?? false, // Also make subscribe optional
       },
       (clipIndex, percent) => {
         const baseProgress = 50;
@@ -357,6 +365,10 @@ class VideoProcessor {
         }
       }
     }
+
+    // Phase 4.5: Voice-Over is now OPTIONAL - added via UI button after clip generation
+    // Users can click "Add Voiceover Intro" button on each clip to add voice-over
+    // This keeps initial clips clean and gives users control over what gets added
 
     // Phase 5: Build Result
     // Use original suggestions for metadata (titles, scores)
@@ -542,7 +554,7 @@ class VideoProcessor {
       "Generating clips..."
     );
 
-    // Step 4: Generate clips
+    // Step 4: Generate clips WITHOUT titles burned in - titles can be added later via UI
     const jobDir = await storageService.ensureJobDir(job.id);
     const clips = await clipService.generateClips(
       videoInfo.videoPath,
@@ -552,7 +564,9 @@ class VideoProcessor {
         includeSubtitles: job.options.includeSubtitles,
         subtitlePath: subtitlePath || undefined,
         quality: "medium",
-        titles: clipTitles.length > 0 ? clipTitles : undefined,
+        // Don't burn titles into video - user can add via "Edit Title" button
+        titles: undefined,
+        showSubscribe: false, // Also don't auto-add subscribe overlay
       },
       (clipIndex, percent) => {
         const baseProgress = 60;
@@ -571,11 +585,11 @@ class VideoProcessor {
       }
     );
 
-    // Step 5: Build result
+    // Step 5: Build result - include generated titles in metadata (but not burned into video)
     const result: JobResult = {
       videoTitle: videoInfo.title,
       duration: videoInfo.duration,
-      clips: clips.map((clip) => ({
+      clips: clips.map((clip, index) => ({
         id: clip.id,
         startTime: clip.startTime,
         endTime: clip.endTime,
@@ -583,7 +597,8 @@ class VideoProcessor {
         score: clip.score,
         thumbnailUrl: `/outputs/${job.id}/thumbnails/${clip.id}.jpg`,
         videoUrl: `/outputs/${job.id}/clips/${clip.id}.mp4`,
-        title: clip.title,
+        // Store the AI-generated title in metadata (user can apply it via "Edit Title" button)
+        title: clipTitles[index] || clip.title,
       })),
     };
 

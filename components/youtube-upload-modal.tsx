@@ -30,6 +30,7 @@ export function YouTubeUploadModal({
   const [title, setTitle] = useState(defaultTitle || '');
   const [description, setDescription] = useState('');
   const [tags, setTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState(''); // For entering new tags
   const [privacy, setPrivacy] = useState<'public' | 'unlisted' | 'private'>('private');
   const [progress, setProgress] = useState(0);
   const [result, setResult] = useState<YouTubeUploadResponse | null>(null);
@@ -41,6 +42,7 @@ export function YouTubeUploadModal({
     setError(null);
 
     try {
+      // Pass existing description and tags as base for AI to expand
       const response = await fetch('/api/youtube/generate-metadata', {
         method: 'POST',
         headers: {
@@ -50,6 +52,8 @@ export function YouTubeUploadModal({
           videoTitle,
           clipNumber,
           totalClips,
+          baseDescription: description.trim() || undefined,
+          baseHashtags: tags.length > 0 ? tags : undefined,
         }),
       });
 
@@ -67,6 +71,27 @@ export function YouTubeUploadModal({
       setError(err.message || 'Failed to generate metadata');
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  // Add a tag from the input field
+  const handleAddTag = () => {
+    const newTags = tagInput
+      .split(',')
+      .map(tag => tag.trim().replace(/^#/, '')) // Remove # if present
+      .filter(tag => tag.length > 0 && !tags.includes(tag));
+
+    if (newTags.length > 0) {
+      setTags([...tags, ...newTags]);
+      setTagInput('');
+    }
+  };
+
+  // Handle Enter key in tag input
+  const handleTagKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleAddTag();
     }
   };
 
@@ -153,7 +178,7 @@ export function YouTubeUploadModal({
             </CardHeader>
             <CardContent className="pt-4">
               <form onSubmit={handleSubmit} className="space-y-5">
-                {/* Auto-generate button */}
+                {/* AI enhance button */}
                 <Button
                   type="button"
                   variant="secondary"
@@ -167,14 +192,14 @@ export function YouTubeUploadModal({
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                       </svg>
-                      Generating...
+                      Enhancing...
                     </>
                   ) : (
                     <>
                       <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
                       </svg>
-                      Auto-generate with AI
+                      {description || tags.length > 0 ? 'Enhance with AI' : 'Generate with AI'}
                     </>
                   )}
                 </Button>
@@ -202,16 +227,48 @@ export function YouTubeUploadModal({
                     id="description"
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
-                    placeholder="Enter video description (optional)"
+                    placeholder="Enter your description (AI will expand it)"
                     className="w-full min-h-[80px] px-3 py-2 text-sm rounded-md border border-input bg-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     maxLength={5000}
                   />
+                  <p className="text-xs text-muted-foreground">
+                    Add your own description and click "Enhance with AI" to expand it
+                  </p>
+                </div>
+
+                {/* Tag input */}
+                <div className="space-y-2">
+                  <label htmlFor="tagInput" className="text-sm font-medium">
+                    Hashtags
+                  </label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="tagInput"
+                      type="text"
+                      value={tagInput}
+                      onChange={(e) => setTagInput(e.target.value)}
+                      onKeyDown={handleTagKeyDown}
+                      placeholder="gaming, valorant, clips"
+                      className="flex-1"
+                    />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={handleAddTag}
+                      disabled={!tagInput.trim()}
+                    >
+                      Add
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Enter hashtags (comma-separated). AI will keep yours and add more.
+                  </p>
                 </div>
 
                 {/* Tags display */}
                 {tags.length > 0 && (
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">Tags</label>
+                    <label className="text-sm font-medium">Your Tags ({tags.length})</label>
                     <div className="flex flex-wrap gap-2">
                       {tags.map((tag) => (
                         <span

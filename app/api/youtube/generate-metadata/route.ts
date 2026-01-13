@@ -8,6 +8,8 @@ const generateSchema = z.object({
   videoTitle: z.string().min(1, 'Video title is required'),
   clipNumber: z.number().int().positive(),
   totalClips: z.number().int().positive(),
+  baseDescription: z.string().optional(), // User's base description to expand
+  baseHashtags: z.array(z.string()).optional(), // User's hashtags to include and expand
 });
 
 /**
@@ -47,13 +49,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { videoTitle, clipNumber, totalClips } = validationResult.data;
+    const { videoTitle, clipNumber, totalClips, baseDescription, baseHashtags } = validationResult.data;
 
-    // Generate metadata using AI
+    // Generate metadata using AI (expands user input if provided)
     const metadata = await aiService.generateMetadata(
       videoTitle,
       clipNumber,
-      totalClips
+      totalClips,
+      baseDescription,
+      baseHashtags
     );
 
     const response: GenerateMetadataResponse = {

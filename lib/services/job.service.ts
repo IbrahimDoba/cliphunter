@@ -289,7 +289,7 @@ export class JobService {
       id: job.id,
       userId: job.userId,
       videoUrl: job.videoUrl,
-      status: prismaToStatus[job.status as PrismaJobStatus],
+      status: prismaToStatus[job.status as PrismaJobStatus] as Job['status'],
       progress: job.progress as JobProgress,
       result: job.result as JobResult | undefined,
       error: job.error as JobError | undefined,

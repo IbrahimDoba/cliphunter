@@ -684,6 +684,69 @@ IMPORTANT:
   }
 
   /**
+   * Generate a voice-over script for a video clip intro
+   * Creates a 2-3 sentence hook that explains why the clip is interesting (10-15 seconds when spoken)
+   */
+  async generateVoiceOverScript(
+    clipTitle: string,
+    transcriptSnippet?: string | null,
+    hookType?: string
+  ): Promise<string> {
+    logger.info("Generating voice-over script", { clipTitle, hookType });
+
+    try {
+      const ai = this.getClient();
+
+      const prompt = `You are a professional content narrator. Generate a short, engaging voice-over intro for a video clip.
+
+Clip title: "${clipTitle}"
+${transcriptSnippet ? `Transcript snippet: "${transcriptSnippet}"` : ''}
+${hookType ? `Hook type: ${hookType}` : ''}
+
+Requirements:
+- Write 2-3 sentences that would take 10-15 seconds to speak
+- Create curiosity and hook the viewer immediately
+- Match the energy to the content (exciting for action, intriguing for educational)
+- Do NOT mention "in this video" or "today we're going to" - be direct
+- Start with an attention-grabbing statement or question
+- End with something that makes them want to keep watching
+
+Examples of good openings:
+- "What happens when you try the impossible? Watch this."
+- "They said it couldn't be done. They were wrong."
+- "This moment changed everything."
+- "Pay close attention to what happens next."
+
+Return ONLY the voice-over script text, nothing else.`;
+
+      const response = await ai.models.generateContent({
+        model: env.GEMINI_MODEL,
+        contents: prompt,
+      });
+
+      const script = response.text?.trim() || "";
+
+      if (!script) {
+        throw new Error("Empty response from Gemini");
+      }
+
+      logger.info("Voice-over script generated", {
+        script: script.substring(0, 100) + "...",
+        length: script.length,
+      });
+
+      return script;
+    } catch (error: any) {
+      logger.error("Failed to generate voice-over script", {
+        error: error.message,
+      });
+
+      // Fallback to a generic script
+      return `Check out this amazing moment. You won't believe what happens next. Keep watching.`;
+    }
+  }
+
+  /**
    * Check if Gemini is configured
    */
   isConfigured(): boolean {

@@ -10,6 +10,8 @@ import { Input } from '@/components/ui/input';
 import { YouTubeUploadButton } from '@/components/youtube-upload-button';
 import { BatchYouTubeUpload } from '@/components/batch-youtube-upload';
 import { BatchTitleEditor } from '@/components/batch-title-editor';
+import { VoiceoverIntroModal } from '@/components/voiceover-intro-modal';
+import { CompilationCreateModal } from '@/components/compilation-create-modal';
 import { GetJobStatusResponse } from '@/types/api';
 
 export default function JobPage() {
@@ -24,6 +26,8 @@ export default function JobPage() {
   const [regenerating, setRegenerating] = useState<string | null>(null);
   const [showBatchUpload, setShowBatchUpload] = useState(false);
   const [showBatchTitleEditor, setShowBatchTitleEditor] = useState(false);
+  const [voiceoverClipId, setVoiceoverClipId] = useState<string | null>(null);
+  const [showCompilationModal, setShowCompilationModal] = useState(false);
 
   useEffect(() => {
     if (!jobId) return;
@@ -194,7 +198,18 @@ export default function JobPage() {
                   {job.result.clips.length} clip{job.result.clips.length !== 1 ? 's' : ''} generated
                 </CardDescription>
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
+                <Button
+                  onClick={() => setShowCompilationModal(true)}
+                  variant="default"
+                  className="gap-2"
+                >
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <polygon points="23 7 16 12 23 17 23 7" />
+                    <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+                  </svg>
+                  Create AI Compilation
+                </Button>
                 <Button
                   onClick={() => setShowBatchTitleEditor(true)}
                   variant="outline"
@@ -208,6 +223,7 @@ export default function JobPage() {
                 </Button>
                 <Button
                   onClick={() => setShowBatchUpload(true)}
+                  variant="outline"
                   className="gap-2"
                 >
                   <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -293,6 +309,20 @@ export default function JobPage() {
                           Download
                         </Button>
                       </a>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full gap-2"
+                        onClick={() => setVoiceoverClipId(clip.id)}
+                      >
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                          <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                          <line x1="12" y1="19" x2="12" y2="23" />
+                          <line x1="8" y1="23" x2="16" y2="23" />
+                        </svg>
+                        Add Voiceover Intro
+                      </Button>
                       <YouTubeUploadButton
                         clipPath={clip.videoUrl}
                         clipTitle={clip.title || `${job.result?.videoTitle || 'Clip'} - Part ${index + 1}`}
@@ -350,6 +380,29 @@ export default function JobPage() {
           }))}
           videoTitle={job.result.videoTitle}
           onClose={() => setShowBatchUpload(false)}
+        />
+      )}
+
+      {/* Voiceover Intro Modal */}
+      {voiceoverClipId && job.result && (
+        <VoiceoverIntroModal
+          clipId={voiceoverClipId}
+          jobId={jobId}
+          clipTitle={job.result.clips.find((c) => c.id === voiceoverClipId)?.title}
+          onClose={() => setVoiceoverClipId(null)}
+          onSuccess={() => {
+            // Force refresh by reloading the page to get updated video
+            window.location.reload();
+          }}
+        />
+      )}
+
+      {/* AI Compilation Modal */}
+      {showCompilationModal && job.result && (
+        <CompilationCreateModal
+          jobId={jobId}
+          clipCount={job.result.clips.length}
+          onClose={() => setShowCompilationModal(false)}
         />
       )}
     </div>

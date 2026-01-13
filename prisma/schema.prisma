@@ -23,6 +23,7 @@ model User {
   subscription   Subscription?
   usageRecords   UsageRecord[]
   youtubeAccount YouTubeAccount?
+  compilations   Compilation[]
 
   @@map("users")
 }
@@ -138,4 +139,111 @@ model YouTubeAccount {
   updatedAt    DateTime @updatedAt
 
   @@map("youtube_accounts")
+}
+
+// ===== Compilation Generator =====
+enum CompilationStatus {
+  CONFIGURING
+  ANALYZING
+  GENERATING_SCRIPT
+  REVIEWING
+  GENERATING_VOICEOVER
+  RENDERING
+  COMPLETED
+  FAILED
+}
+
+enum NarrationStyle {
+  COMMENTARY
+  DOCUMENTARY
+  CASUAL
+  DRAMATIC
+  HUMOROUS
+}
+
+enum SubtitleStyle {
+  WORD_BY_WORD_HIGHLIGHT
+  SENTENCE_POP
+  KARAOKE
+  MINIMAL
+  BOLD_KEYWORDS
+}
+
+enum ClipAudioMode {
+  MUTED
+  DUCKED
+  FULL
+}
+
+model Compilation {
+  id              String            @id @default(cuid())
+  userId          String
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jobId           String
+
+  // Configuration
+  targetDuration  Int               // Target duration in seconds
+  narrationStyle  NarrationStyle    @default(COMMENTARY)
+  subtitleStyle   SubtitleStyle     @default(WORD_BY_WORD_HIGHLIGHT)
+  clipAudioMode   ClipAudioMode     @default(MUTED)
+  backgroundMusic String?           // none, upbeat, dramatic, chill, or custom path
+  musicVolume     Int               @default(50) // 0-100
+
+  // Status tracking
+  status          CompilationStatus @default(CONFIGURING)
+  progress        Json?             // { step, percentage, message }
+
+  // Generated content (stored as JSON)
+  clipAnalysis    Json?             // Analysis results for each clip
+  selectedClips   Json?             // Curated clip selection with timestamps
+  script          Json?             // Generated narration script
+  voiceoverFiles  Json?             // Paths to generated audio files
+
+  // Output
+  outputPath      String?           // Final video path
+  outputUrl       String?           // Public URL for the final video
+  thumbnailPath   String?
+
+  // Metadata
+  error           String?           @db.Text
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  // Relations
+  clips           CompilationClip[]
+
+  @@index([userId, status])
+  @@index([jobId])
+  @@map("compilations")
+}
+
+model CompilationClip {
+  id              String      @id @default(cuid())
+  compilationId   String
+  compilation     Compilation @relation(fields: [compilationId], references: [id], onDelete: Cascade)
+
+  // Source clip reference (from job result)
+  sourceClipId    String      // The clip ID from the job
+
+  // Segment selection within the source clip
+  segmentStart    Float       // Start time in source clip (seconds)
+  segmentEnd      Float       // End time in source clip (seconds)
+
+  // Position in compilation
+  orderIndex      Int
+
+  // Analysis data
+  analysis        Json?       // Scene description, emotional tone, etc.
+  engagementScore Float?      // 1-10 engagement score
+
+  // Narration for this clip
+  narrationBefore String?     @db.Text // Narration text before this clip
+  narrationDuring String?     @db.Text // Narration text during this clip
+  narrationAfter  String?     @db.Text // Narration text after this clip
+
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@index([compilationId, orderIndex])
+  @@map("compilation_clips")
 }

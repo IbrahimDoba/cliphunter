@@ -1,4 +1,5 @@
 import * as path from "path";
+import * as fs from "fs/promises";
 import { Scene } from "@/types/clip";
 import { VIDEO_CONFIG } from "@/config/constants";
 import { logger } from "../utils/logger";
@@ -9,7 +10,8 @@ import {
   createProgressHandler,
 } from "../utils/ffmpeg";
 import { v4 as uuidv4 } from "uuid";
-import { ClipSuggestion, SubtitleChunk } from "./gemini.service";
+import { ClipSuggestion, SubtitleChunk, geminiService } from "./gemini.service";
+import { elevenLabsService } from "./elevenlabs.service";
 
 export interface ClipGenerationOptions {
   includeSubtitles?: boolean;
@@ -316,6 +318,7 @@ export class ClipService {
   /**
    * Build FFmpeg drawtext filters for title overlay
    * Style: Large bold white text with thick black outline (like TikTok/YouTube Shorts)
+   * Title is visible throughout the entire video duration
    */
   private buildTitleFilters(title: string): string[] {
     // 18 chars per line with Impact font on 1080px width
@@ -340,6 +343,7 @@ export class ClipService {
 
       // Main text with thick black border and bold font
       // Use fontfile for Windows compatibility
+      // No enable or alpha = always visible throughout entire video
       filters.push(
         `drawtext=text='${escapedLine}':` +
           `fontfile='C\\:/Windows/Fonts/impact.ttf':` +
@@ -348,9 +352,7 @@ export class ClipService {
           `borderw=${borderWidth}:` +
           `bordercolor=black:` +
           `x=(w-text_w)/2:` +
-          `y=${yPos}:` +
-          `enable='between(t,0,10)':` +
-          `alpha='if(lt(t,9),1,max(0,1-(t-9)))'`
+          `y=${yPos}`
       );
     });
 
@@ -386,15 +388,16 @@ export class ClipService {
 
   /**
    * Build FFmpeg drawtext filters for subtitle overlays
-   * Style: White text with black outline, positioned at bottom center, timed to audio
+   * Style: Large bold white text with thick black outline, centered on screen, timed to audio
    */
   private buildSubtitleFilters(chunks: SubtitleChunk[]): string[] {
     const filters: string[] = [];
 
-    // Font settings for subtitles - slightly smaller than title, positioned at bottom
-    const fontSize = 54;
-    const borderWidth = 4;
-    const bottomMargin = 280; // Above the subscribe text
+    // Font settings for subtitles - large, bold, centered
+    const fontSize = 72; // Bigger for better visibility
+    const borderWidth = 6; // Thicker outline
+    const shadowX = 3;
+    const shadowY = 3;
 
     logger.info("Building subtitle filters", {
       chunkCount: chunks.length,
@@ -405,6 +408,7 @@ export class ClipService {
 
       // Create drawtext filter with time-based enable
       // Show this text only between chunk.start and chunk.end
+      // Centered both horizontally and vertically
       filters.push(
         `drawtext=text='${escapedText}':` +
           `fontfile='C\\:/Windows/Fonts/impact.ttf':` +
@@ -412,8 +416,11 @@ export class ClipService {
           `fontcolor=white:` +
           `borderw=${borderWidth}:` +
           `bordercolor=black:` +
+          `shadowcolor=black@0.5:` +
+          `shadowx=${shadowX}:` +
+          `shadowy=${shadowY}:` +
           `x=(w-text_w)/2:` +
-          `y=h-${bottomMargin}:` +
+          `y=(h-text_h)/2:` +
           `enable='between(t,${chunk.start.toFixed(2)},${chunk.end.toFixed(2)})'`
       );
     });
@@ -583,6 +590,346 @@ export class ClipService {
       clipPath,
       chunkCount: subtitleChunks.length,
     });
+  }
+
+  /**
+   * Add voice-over audio to an existing clip
+   * Mixes the voice-over with the original audio, with voice-over slightly louder
+   * Voice-over plays at the start of the clip with a small delay
+   */
+  async addVoiceOverToClip(
+    clipPath: string,
+    voiceOverPath: string,
+    onProgress?: (percent: number) => void
+  ): Promise<void> {
+    const qualityPreset = VIDEO_CONFIG.qualityPresets["medium"];
+    const tempPath = clipPath.replace(".mp4", "_voiceover.mp4");
+
+    logger.info("Adding voice-over to clip", { clipPath, voiceOverPath });
+
+    // Get clip duration for progress tracking
+    const metadata = await new Promise<number>((resolve, reject) => {
+      ffmpeg.ffprobe(clipPath, (err, data) => {
+        if (err) reject(err);
+        else resolve(data.format.duration || 30);
+      });
+    });
+
+    // Mix voice-over with original audio
+    // Voice-over starts after 500ms delay, volume boosted slightly
+    // Original audio is ducked (lowered) during voice-over
+    await new Promise<void>((resolve, reject) => {
+      let command = ffmpeg(clipPath)
+        .input(voiceOverPath)
+        .complexFilter([
+          // Add 500ms delay to voice-over and boost volume
+          "[1:a]adelay=500|500,volume=1.3[vo]",
+          // Duck the original audio slightly when voice-over plays
+          "[0:a]volume=0.7[original]",
+          // Mix both audio tracks
+          "[original][vo]amix=inputs=2:duration=first:dropout_transition=2[aout]",
+        ])
+        .outputOptions([
+          "-map",
+          "0:v", // Keep original video
+          "-map",
+          "[aout]", // Use mixed audio
+          "-c:v",
+          "libx264",
+          `-preset ${qualityPreset.preset}`,
+          "-c:a",
+          "aac",
+          `-b:a ${qualityPreset.audioBitrate}`,
+          "-threads 0",
+          "-movflags +faststart",
+        ])
+        .output(tempPath);
+
+      if (onProgress) {
+        command = command.on(
+          "progress",
+          createProgressHandler(metadata, onProgress)
+        );
+      }
+
+      command
+        .on("end", () => resolve())
+        .on("error", (err, stdout, stderr) => {
+          logger.error("FFmpeg voice-over mixing error", {
+            error: err.message,
+            stdout,
+            stderr,
+          });
+          reject(err);
+        })
+        .run();
+    });
+
+    // Replace original with new version
+    const fs = await import("fs/promises");
+    await fs.unlink(clipPath);
+    await fs.rename(tempPath, clipPath);
+
+    // Clean up voice-over file
+    try {
+      await fs.unlink(voiceOverPath);
+    } catch {
+      // Ignore cleanup errors
+    }
+
+    logger.info("Voice-over added to clip successfully", { clipPath });
+  }
+
+  /**
+   * Generate a voiceover intro and prepend it to an existing clip
+   * Creates: blurred background + voiceover audio + word-by-word subtitles
+   * Then concatenates the intro with the original clip
+   */
+  async generateIntroVideo(
+    clipPath: string,
+    script: string,
+    voiceId?: string,
+    onProgress?: (step: string, percent: number) => void
+  ): Promise<void> {
+    const tempDir = path.dirname(clipPath);
+    const clipId = path.basename(clipPath, ".mp4");
+    const qualityPreset = VIDEO_CONFIG.qualityPresets["medium"];
+
+    logger.info("Generating voiceover intro", { clipPath, script, voiceId });
+
+    // Temp file paths
+    const framePath = path.join(tempDir, `${clipId}_frame.png`);
+    const blurredFramePath = path.join(tempDir, `${clipId}_blurred.png`);
+    const audioPath = path.join(tempDir, `${clipId}_intro_audio.mp3`);
+    const boostedAudioPath = path.join(tempDir, `${clipId}_intro_audio_loud.mp3`);
+    const introVideoPath = path.join(tempDir, `${clipId}_intro.mp4`);
+    const concatListPath = path.join(tempDir, `${clipId}_concat.txt`);
+    const outputPath = path.join(tempDir, `${clipId}_with_intro.mp4`);
+
+    // Helper to check if file exists
+    const fileExists = async (filePath: string): Promise<boolean> => {
+      try {
+        await fs.access(filePath);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    try {
+      // Step 1: Extract first frame using ffmpeg command directly
+      onProgress?.("Extracting frame", 10);
+      logger.info("Extracting first frame from clip");
+
+      await new Promise<void>((resolve, reject) => {
+        ffmpeg(clipPath)
+          .seekInput(0.5)
+          .frames(1)
+          .output(framePath)
+          .on("end", () => resolve())
+          .on("error", (err, stdout, stderr) => {
+            logger.error("Frame extraction failed", { error: err.message, stderr });
+            reject(err);
+          })
+          .run();
+      });
+
+      // Verify frame was created
+      if (!(await fileExists(framePath))) {
+        throw new Error("Failed to extract frame from video");
+      }
+      logger.info("Frame extracted successfully", { framePath });
+
+      // Step 2: Apply blur effect to frame
+      onProgress?.("Applying blur effect", 20);
+      logger.info("Applying blur effect to frame");
+
+      await new Promise<void>((resolve, reject) => {
+        ffmpeg(framePath)
+          .videoFilters("gblur=sigma=40") // Stronger blur
+          .output(blurredFramePath)
+          .on("end", () => resolve())
+          .on("error", (err, stdout, stderr) => {
+            logger.error("Blur effect failed", { error: err.message, stderr });
+            reject(err);
+          })
+          .run();
+      });
+
+      // Verify blurred frame was created
+      if (!(await fileExists(blurredFramePath))) {
+        throw new Error("Failed to create blurred frame");
+      }
+      logger.info("Blurred frame created successfully", { blurredFramePath });
+
+      // Step 3: Generate voiceover audio
+      onProgress?.("Generating voiceover", 30);
+      logger.info("Generating voiceover audio with ElevenLabs");
+
+      await elevenLabsService.generateSpeech(script, audioPath, voiceId);
+
+      // Verify audio was created
+      if (!(await fileExists(audioPath))) {
+        throw new Error("Failed to generate voiceover audio");
+      }
+
+      // Step 4: Boost audio volume significantly (3x louder)
+      onProgress?.("Boosting audio volume", 35);
+      logger.info("Boosting voiceover volume");
+
+      await new Promise<void>((resolve, reject) => {
+        ffmpeg(audioPath)
+          .audioFilters("volume=3.0") // 3x volume boost
+          .output(boostedAudioPath)
+          .on("end", () => resolve())
+          .on("error", (err) => {
+            logger.error("Audio boost failed", { error: err.message });
+            reject(err);
+          })
+          .run();
+      });
+
+      // Use boosted audio if created, otherwise fall back to original
+      const finalAudioPath = (await fileExists(boostedAudioPath)) ? boostedAudioPath : audioPath;
+
+      // Step 5: Get audio duration
+      const audioDuration = await new Promise<number>((resolve, reject) => {
+        ffmpeg.ffprobe(finalAudioPath, (err, data) => {
+          if (err) reject(err);
+          else resolve(data.format.duration || 5);
+        });
+      });
+
+      logger.info("Voiceover audio ready", { audioDuration, boosted: finalAudioPath === boostedAudioPath });
+
+      // Step 6: Generate word-level timestamps for subtitles
+      onProgress?.("Creating subtitles", 50);
+      let subtitleChunks: SubtitleChunk[] = [];
+
+      // Use fallback timing (distribute words evenly) - more reliable than transcription
+      const words = script.split(/\s+/).filter(w => w.length > 0);
+      const wordsPerChunk = 2;
+      const totalChunks = Math.ceil(words.length / wordsPerChunk);
+      const chunkDuration = audioDuration / totalChunks;
+
+      for (let i = 0; i < words.length; i += wordsPerChunk) {
+        const chunkWords = words.slice(i, i + wordsPerChunk);
+        const chunkIndex = Math.floor(i / wordsPerChunk);
+        subtitleChunks.push({
+          text: chunkWords.join(" "),
+          start: chunkIndex * chunkDuration,
+          end: (chunkIndex + 1) * chunkDuration,
+        });
+      }
+
+      logger.info("Subtitle chunks created", { chunkCount: subtitleChunks.length });
+
+      // Step 7: Create intro video with blurred frame + audio + subtitles
+      onProgress?.("Building intro video", 70);
+      logger.info("Creating intro video with subtitles");
+
+      // Build subtitle filters
+      const subtitleFilters = this.buildSubtitleFilters(subtitleChunks);
+      const filterString = subtitleFilters.length > 0 ? subtitleFilters.join(",") : "null";
+
+      await new Promise<void>((resolve, reject) => {
+        ffmpeg()
+          .input(blurredFramePath)
+          .inputOptions(["-loop 1"])
+          .input(finalAudioPath)
+          .outputOptions([
+            "-c:v libx264",
+            "-preset ultrafast",
+            "-tune stillimage",
+            "-c:a aac",
+            "-b:a 192k", // Higher audio bitrate
+            "-pix_fmt yuv420p",
+            "-shortest",
+            "-r 30",
+          ])
+          .videoFilters(filterString)
+          .output(introVideoPath)
+          .on("end", () => resolve())
+          .on("error", (err, stdout, stderr) => {
+            logger.error("Intro video creation failed", { error: err.message, stderr });
+            reject(err);
+          })
+          .run();
+      });
+
+      // Verify intro video was created
+      if (!(await fileExists(introVideoPath))) {
+        throw new Error("Failed to create intro video");
+      }
+      logger.info("Intro video created successfully", { introVideoPath });
+
+      // Step 8: Concatenate intro with original clip
+      onProgress?.("Concatenating videos", 85);
+      logger.info("Concatenating intro with original clip");
+
+      // Create concat file list with forward slashes for FFmpeg
+      const introPathEscaped = introVideoPath.replace(/\\/g, "/");
+      const clipPathEscaped = clipPath.replace(/\\/g, "/");
+      const concatContent = `file '${introPathEscaped}'\nfile '${clipPathEscaped}'`;
+      await fs.writeFile(concatListPath, concatContent);
+
+      logger.info("Concat list created", { concatContent });
+
+      // Concatenate with re-encoding for compatibility
+      await new Promise<void>((resolve, reject) => {
+        ffmpeg()
+          .input(concatListPath)
+          .inputOptions(["-f concat", "-safe 0"])
+          .outputOptions([
+            "-c:v libx264",
+            `-preset ${qualityPreset.preset}`,
+            `-b:v ${qualityPreset.videoBitrate}`,
+            "-c:a aac",
+            `-b:a ${qualityPreset.audioBitrate}`,
+            "-movflags +faststart",
+            "-threads 0",
+          ])
+          .output(outputPath)
+          .on("end", () => resolve())
+          .on("error", (err, stdout, stderr) => {
+            logger.error("Concatenation failed", { error: err.message, stderr });
+            reject(err);
+          })
+          .run();
+      });
+
+      // Verify output was created
+      if (!(await fileExists(outputPath))) {
+        throw new Error("Failed to concatenate videos");
+      }
+      logger.info("Videos concatenated successfully", { outputPath });
+
+      // Step 9: Replace original clip with new version
+      onProgress?.("Finalizing", 95);
+      logger.info("Replacing original clip with intro version");
+
+      await fs.unlink(clipPath);
+      await fs.rename(outputPath, clipPath);
+
+      // Step 10: Cleanup temp files
+      const tempFiles = [framePath, blurredFramePath, audioPath, boostedAudioPath, introVideoPath, concatListPath];
+      for (const tempFile of tempFiles) {
+        await fs.unlink(tempFile).catch(() => {});
+      }
+
+      onProgress?.("Complete", 100);
+      logger.info("Voiceover intro added successfully", { clipPath });
+    } catch (error: any) {
+      logger.error("Failed to generate intro video", { error: error.message, clipPath, stack: error.stack });
+
+      // Cleanup on error
+      const tempFiles = [framePath, blurredFramePath, audioPath, boostedAudioPath, introVideoPath, concatListPath, outputPath];
+      for (const tempFile of tempFiles) {
+        await fs.unlink(tempFile).catch(() => {});
+      }
+
+      throw error;
+    }
   }
 }
 
