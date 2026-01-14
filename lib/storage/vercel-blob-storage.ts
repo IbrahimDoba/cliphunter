@@ -1,7 +1,5 @@
-import { put, del, list } from '@vercel/blob';
-import { IStorageService } from './storage.interface';
-import * as fs from 'fs/promises';
-import * as path from 'path';
+import { put, del, list } from "@vercel/blob";
+import { IStorageService } from "./storage.interface";
 
 /**
  * Vercel Blob Storage Service
@@ -9,6 +7,11 @@ import * as path from 'path';
  */
 export class VercelBlobStorageService implements IStorageService {
   async saveFile(key: string, filePath: string): Promise<string> {
+    // This method is used by the worker (Node.js)
+    // We use dynamic imports here to avoid bundling fs/path in Edge runtime
+    const fs = await import("fs/promises");
+    const path = await import("path");
+
     try {
       // Read file from local path
       const fileBuffer = await fs.readFile(filePath);
@@ -19,21 +22,20 @@ export class VercelBlobStorageService implements IStorageService {
 
       // Upload to Vercel Blob
       const blob = await put(key, fileBuffer, {
-        access: 'public',
+        access: "public",
         contentType,
       });
 
       return blob.url;
     } catch (error) {
-      console.error('Failed to upload to Vercel Blob:', error);
+      console.error("Failed to upload to Vercel Blob:", error);
       throw error;
     }
   }
 
   getFileUrl(key: string): string {
-    // URL is returned from saveFile, but we can construct it if needed
-    // Vercel Blob URLs follow pattern: https://[hash].public.blob.vercel-storage.com/[key]
-    // For now, this is a placeholder - actual URL comes from saveFile
+    // In production, the URL is stored in the DB or returned by Vercel Blob
+    // This is a placeholder for the relative path which the route will handle
     return `/outputs/${key}`;
   }
 
@@ -41,8 +43,7 @@ export class VercelBlobStorageService implements IStorageService {
     try {
       await del(key);
     } catch (error) {
-      console.error('Failed to delete from Vercel Blob:', error);
-      // Don't throw - file might not exist
+      console.error("Failed to delete from Vercel Blob:", error);
     }
   }
 
@@ -60,16 +61,12 @@ export class VercelBlobStorageService implements IStorageService {
   }
 
   getLocalPath(key: string): string {
-    // Not applicable for cloud storage, but required by interface
     return `/tmp/${key}`;
   }
 
   async deleteJobFiles(jobId: string): Promise<void> {
     try {
-      // List all blobs with jobId prefix
       const { blobs } = await list({ prefix: jobId });
-
-      // Delete all files for this job
       await Promise.all(blobs.map((blob) => del(blob.url)));
     } catch (error) {
       console.error(`Failed to delete job files for ${jobId}:`, error);
@@ -77,23 +74,21 @@ export class VercelBlobStorageService implements IStorageService {
   }
 
   async ensureJobDir(jobId: string): Promise<string> {
-    // Cloud storage doesn't need directory creation
-    // Return a temp path for local processing
     return `/tmp/${jobId}`;
   }
 
   private getContentType(ext: string): string {
     const types: Record<string, string> = {
-      '.mp4': 'video/mp4',
-      '.webm': 'video/webm',
-      '.jpg': 'image/jpeg',
-      '.jpeg': 'image/jpeg',
-      '.png': 'image/png',
-      '.gif': 'image/gif',
-      '.srt': 'text/plain',
-      '.vtt': 'text/vtt',
+      ".mp4": "video/mp4",
+      ".webm": "video/webm",
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".png": "image/png",
+      ".gif": "image/gif",
+      ".srt": "text/plain",
+      ".vtt": "text/vtt",
     };
-    return types[ext] || 'application/octet-stream';
+    return types[ext] || "application/octet-stream";
   }
 }
 

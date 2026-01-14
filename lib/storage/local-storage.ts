@@ -1,25 +1,31 @@
-import * as fs from 'fs/promises';
-import * as path from 'path';
-import { env } from '@/config/env';
-import { IStorageService } from './storage.interface';
+import { IStorageService } from "./storage.interface";
+import { env } from "@/config/env";
 
 export class LocalStorageService implements IStorageService {
   private baseDir: string;
 
   constructor() {
-    this.baseDir = path.resolve(process.cwd(), env.OUTPUT_DIR);
+    // We'll initialize baseDir in a way that doesn't require 'path' at top level
+    this.baseDir = env.OUTPUT_DIR;
     this.ensureBaseDir();
   }
 
   private async ensureBaseDir(): Promise<void> {
+    const fs = await import("fs/promises");
+    const path = await import("path");
+    const resolvedBaseDir = path.resolve(process.cwd(), this.baseDir);
+
     try {
-      await fs.mkdir(this.baseDir, { recursive: true });
+      await fs.mkdir(resolvedBaseDir, { recursive: true });
     } catch (error) {
-      console.error('Failed to create base directory:', error);
+      console.error("Failed to create base directory:", error);
     }
   }
 
   async saveFile(key: string, filePath: string): Promise<string> {
+    const fs = await import("fs/promises");
+    const path = await import("path");
+
     const destinationPath = this.getLocalPath(key);
     const destinationDir = path.dirname(destinationPath);
 
@@ -38,14 +44,14 @@ export class LocalStorageService implements IStorageService {
   }
 
   async deleteFile(key: string): Promise<void> {
+    const fs = await import("fs/promises");
     const filePath = this.getLocalPath(key);
     try {
       await fs.unlink(filePath);
     } catch (error: any) {
-      if (error.code !== 'ENOENT') {
+      if (error.code !== "ENOENT") {
         throw error;
       }
-      // File doesn't exist, ignore
     }
   }
 
@@ -54,6 +60,7 @@ export class LocalStorageService implements IStorageService {
   }
 
   async fileExists(key: string): Promise<boolean> {
+    const fs = await import("fs/promises");
     try {
       await fs.access(this.getLocalPath(key));
       return true;
@@ -63,32 +70,35 @@ export class LocalStorageService implements IStorageService {
   }
 
   getLocalPath(key: string): string {
-    return path.join(this.baseDir, key);
+    // Note: This still uses path.join if we were to be strict,
+    // but for local dev we assume Node environment.
+    // To be safe for Edge bundling, we'll use a simple join or dynamic import.
+    return `${this.baseDir}/${key}`.replace(/\/+/g, "/");
   }
 
-  /**
-   * Delete all files for a specific job
-   */
   async deleteJobFiles(jobId: string): Promise<void> {
-    const jobDir = path.join(this.baseDir, jobId);
+    const fs = await import("fs/promises");
+    const path = await import("path");
+    const jobDir = path.join(path.resolve(process.cwd(), this.baseDir), jobId);
     try {
       await fs.rm(jobDir, { recursive: true, force: true });
     } catch (error: any) {
-      if (error.code !== 'ENOENT') {
+      if (error.code !== "ENOENT") {
         console.error(`Failed to delete job files for ${jobId}:`, error);
       }
     }
   }
 
-  /**
-   * Ensure job directory exists
-   */
   async ensureJobDir(jobId: string): Promise<string> {
-    const jobDir = path.join(this.baseDir, jobId);
+    const fs = await import("fs/promises");
+    const path = await import("path");
+    const resolvedBaseDir = path.resolve(process.cwd(), this.baseDir);
+    const jobDir = path.join(resolvedBaseDir, jobId);
+
     await fs.mkdir(jobDir, { recursive: true });
-    await fs.mkdir(path.join(jobDir, 'clips'), { recursive: true });
-    await fs.mkdir(path.join(jobDir, 'thumbnails'), { recursive: true });
-    await fs.mkdir(path.join(jobDir, 'subtitles'), { recursive: true });
+    await fs.mkdir(path.join(jobDir, "clips"), { recursive: true });
+    await fs.mkdir(path.join(jobDir, "thumbnails"), { recursive: true });
+    await fs.mkdir(path.join(jobDir, "subtitles"), { recursive: true });
     return jobDir;
   }
 }

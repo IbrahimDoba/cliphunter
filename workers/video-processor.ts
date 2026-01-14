@@ -7,7 +7,7 @@ import { subtitleService } from "../lib/services/subtitle.service";
 import { clipService } from "../lib/services/clip.service";
 import { aiService } from "../lib/services/ai.service";
 import { geminiService, ClipSuggestion } from "../lib/services/gemini.service";
-import { storageService } from "../lib/storage";
+import { getStorageService, getStorage } from "../lib/storage";
 import { env } from "../config/env";
 import { JOB_STATUS, PROCESSING_STEPS } from "../config/constants";
 import { logger } from "../lib/utils/logger";
@@ -17,6 +17,7 @@ class VideoProcessor {
   private pollInterval: number;
   private isRunning = false;
   private intervalId?: NodeJS.Timeout;
+  private storageInitialized = false;
 
   constructor() {
     this.pollInterval = env.QUEUE_POLL_INTERVAL;
@@ -25,10 +26,20 @@ class VideoProcessor {
   /**
    * Start the worker
    */
-  start(): void {
+  async start(): Promise<void> {
     if (this.isRunning) {
       logger.warn("Worker already running");
       return;
+    }
+
+    // Initialize storage once at start
+    try {
+      await getStorageService();
+      this.storageInitialized = true;
+      logger.info("Storage service initialized");
+    } catch (error) {
+      logger.error("Failed to initialize storage service", error);
+      process.exit(1);
     }
 
     this.isRunning = true;
@@ -256,7 +267,7 @@ class VideoProcessor {
       60,
       "Generating clips..."
     );
-    const jobDir = await storageService.ensureJobDir(job.id);
+    const jobDir = await getStorage().ensureJobDir(job.id);
 
     // If we used segment download, we need to adjust logic because we have one merged file
     // The "start_time" in suggestions refers to ORIGINAL video, but our file has them concatenated
@@ -296,9 +307,9 @@ class VideoProcessor {
 
     // Generate clips WITHOUT titles burned in - titles can be added later via UI
     // We still pass the suggestions but override titles to empty so clips are clean
-    const cleanScenes = processableScenes.map(scene => ({
+    const cleanScenes = processableScenes.map((scene) => ({
       ...scene,
-      title: '', // Don't burn title into video - user can add via "Edit Title" button
+      title: "", // Don't burn title into video - user can add via "Edit Title" button
     }));
 
     const clips = await clipService.generateClipsFromSuggestions(
@@ -349,7 +360,10 @@ class VideoProcessor {
 
           if (subtitleChunks.length > 0) {
             // Add subtitles to the clip
-            await clipService.addSubtitlesToClip(clip.videoPath, subtitleChunks);
+            await clipService.addSubtitlesToClip(
+              clip.videoPath,
+              subtitleChunks
+            );
             logger.info(`Added subtitles to clip ${i + 1}`, {
               clipId: clip.id,
               chunkCount: subtitleChunks.length,
@@ -538,7 +552,7 @@ class VideoProcessor {
     // Step 3: Generate subtitles (optional)
     let subtitlePath: string | null = null;
     if (job.options.includeSubtitles) {
-      const jobDir = await storageService.ensureJobDir(job.id);
+      const jobDir = await getStorage().ensureJobDir(job.id);
       subtitlePath = await subtitleService.generateSubtitles(
         videoInfo.videoPath,
         jobDir
@@ -553,7 +567,7 @@ class VideoProcessor {
     );
 
     // Step 4: Generate clips WITHOUT titles burned in - titles can be added later via UI
-    const jobDir = await storageService.ensureJobDir(job.id);
+    const jobDir = await getStorage().ensureJobDir(job.id);
     const clips = await clipService.generateClips(
       videoInfo.videoPath,
       scenes,
