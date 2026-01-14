@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 
-export default function GeneratePage() {
+function GenerateContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [videoUrl, setVideoUrl] = useState("");
@@ -33,7 +33,7 @@ export default function GeneratePage() {
 
   // Pre-fill URL from query params (from landing page CTA)
   useEffect(() => {
-    const urlParam = searchParams.get('url');
+    const urlParam = searchParams.get("url");
     if (urlParam) {
       setVideoUrl(decodeURIComponent(urlParam));
     }
@@ -75,9 +75,8 @@ export default function GeneratePage() {
   };
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="max-w-2xl mx-auto">
-        <Card>
+    <div className="max-w-2xl mx-auto">
+      <Card>
         <CardHeader>
           <CardTitle>Create Short Clips from YouTube</CardTitle>
           <CardDescription>
@@ -194,7 +193,25 @@ export default function GeneratePage() {
           <li>• https://www.youtube.com/shorts/...</li>
         </ul>
       </div>
-      </div>
+    </div>
+  );
+}
+
+export default function GeneratePage() {
+  return (
+    <div className="container mx-auto px-4 py-8">
+      <Suspense
+        fallback={
+          <div className="max-w-2xl mx-auto">
+            <Card className="animate-pulse">
+              <CardHeader className="h-32" />
+              <CardContent className="h-96" />
+            </Card>
+          </div>
+        }
+      >
+        <GenerateContent />
+      </Suspense>
     </div>
   );
 }
