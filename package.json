@@ -4,11 +4,12 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "next start",
     "lint": "next lint",
     "worker": "tsx watch --env-file=.env.local workers/video-processor.ts",
-    "worker:prod": "tsx --env-file=.env.local workers/video-processor.ts"
+    "worker:prod": "tsx --env-file=.env.local workers/video-processor.ts",
+    "postinstall": "prisma generate"
   },
   "packageManager": "pnpm@9.0.0",
   "dependencies": {
